@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Bénévoles Life Party 2026</title>
+<meta name="description" content="Inscris-toi comme bénévole pour la Life Party 2026 « Let's Play » : choisis ton stand, écris ton prénom, c'est enregistré.">
+<link rel="icon" href="logo-life-party.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Permanent+Marker&display=swap" rel="stylesheet">
+<style>
+:root{
+  --rouge:#E00205; --encre:#15120F; --creme:#F7F3ED; --pierre:#E7E0D5; --or:#FDBA27; --bleu:#133F9D;
+  --doux:#6B6359; --trait:rgba(21,18,15,.14); --vert:#1E7A46; --vert-clair:#E3F3E8; --blanc:#fff;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--creme);color:var(--encre);font:16px/1.5 'Inter',system-ui,-apple-system,sans-serif}
+button,input{font:inherit;color:inherit}
+.conteneur{max-width:780px;margin:0 auto;padding:0 16px}
+a{color:var(--bleu)}
+
+/* bandeaux */
+.bandeau-test{background:var(--or);text-align:center;font-weight:600;padding:8px 16px;font-size:.9rem}
+.bandeau-orga{background:var(--encre);color:#fff;font-size:.9rem}
+.bandeau-orga .conteneur{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding-top:10px;padding-bottom:10px}
+.bandeau-orga strong{margin-right:auto}
+.bandeau-orga button{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:999px;padding:6px 12px;cursor:pointer;font-size:.85rem}
+.bandeau-orga button:hover{background:rgba(255,255,255,.12)}
+
+/* en-tete */
+header.tete{background:var(--blanc);border-bottom:1px solid var(--trait)}
+header.tete .conteneur{display:flex;gap:20px;align-items:center;padding-top:22px;padding-bottom:22px}
+.logo{width:118px;height:118px;flex:none;border-radius:50%;object-fit:cover}
+.surtitre{font-family:'Permanent Marker',cursive;color:var(--rouge);font-size:1.15rem;transform:rotate(-2deg);display:inline-block;margin-bottom:2px}
+h1{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:clamp(1.7rem,5vw,2.4rem);line-height:1.08;margin:0 0 6px}
+.date{font-weight:600;color:var(--doux);margin:0}
+.date b{color:var(--encre)}
+
+/* explications */
+.etapes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0 6px;padding:0;list-style:none;counter-reset:e}
+.etapes li{background:var(--blanc);border:1px solid var(--trait);border-radius:14px;padding:12px 12px 12px 46px;position:relative;font-size:.93rem;line-height:1.35}
+.etapes li::before{counter-increment:e;content:counter(e);position:absolute;left:12px;top:11px;width:26px;height:26px;border-radius:50%;background:var(--rouge);color:#fff;font-weight:700;display:grid;place-items:center;font-size:.85rem}
+.sans-compte{margin:8px 0 0;font-size:.9rem;color:var(--doux)}
+
+/* jauge */
+.jauge{background:var(--blanc);border:1px solid var(--trait);border-radius:16px;padding:16px;margin:18px 0}
+.jauge-ligne{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.jauge-chiffre{font-family:'Fraunces',Georgia,serif;font-size:1.6rem;font-weight:700;line-height:1.1}
+.jauge-chiffre small{font-family:'Inter',sans-serif;font-size:.95rem;font-weight:500;color:var(--doux)}
+.barre{height:12px;border-radius:999px;background:var(--pierre);overflow:hidden;margin:12px 0 8px}
+.barre span{display:block;height:100%;background:linear-gradient(90deg,var(--or),var(--rouge));border-radius:999px;transition:width .5s}
+.jauge-pied{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.85rem;color:var(--doux)}
+.filtre{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem;color:var(--encre)}
+.filtre input{width:18px;height:18px;accent-color:var(--rouge)}
+
+/* messages */
+.alerte{border-radius:14px;padding:14px 16px;margin:16px 0;font-size:.95rem}
+.alerte.erreur{background:#FDE8E8;border:1px solid #F3B4B4;color:#8A1212}
+.alerte button{margin-top:8px}
+.chargement{text-align:center;color:var(--doux);padding:40px 0}
+
+/* mes inscriptions */
+.mes{background:#FFF7DF;border:1px solid #F2D27A;border-radius:16px;padding:14px 16px;margin:18px 0}
+.mes h2{font-size:1rem;margin:0 0 8px;font-family:'Inter',sans-serif}
+.mes ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.mes li{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.mes p{margin:8px 0 0;font-size:.82rem;color:var(--doux)}
+
+/* groupes et stands */
+section.groupe{margin:28px 0 10px}
+.groupe-tete{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.groupe-tete h2{font-family:'Fraunces',Georgia,serif;font-size:1.35rem;margin:0}
+.groupe-tete span{font-size:.85rem;color:var(--doux)}
+.stands{display:grid;gap:10px}
+.stand{background:var(--blanc);border:1px solid var(--trait);border-radius:16px;padding:14px 16px}
+.stand.complet{background:#FBFAF7}
+.stand-tete{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.stand h3{font-size:1rem;font-weight:600;margin:0;line-height:1.35}
+.compteur{flex:none;font-size:.8rem;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--pierre);white-space:nowrap}
+.compteur.libre{background:#FFF1C9;color:#7A5300}
+.compteur.plein{background:var(--vert-clair);color:var(--vert)}
+.places{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.nom{display:inline-flex;align-items:center;gap:6px;background:var(--pierre);border-radius:999px;padding:6px 12px;font-size:.92rem;font-weight:500;max-width:100%}
+.nom .rq{font-weight:400;color:var(--doux);font-size:.82rem;overflow-wrap:anywhere}
+.nom.moi{background:#FFF1C9;box-shadow:inset 0 0 0 2px var(--or)}
+.nom .moi-tag{font-size:.72rem;font-weight:700;color:#7A5300;text-transform:uppercase;letter-spacing:.04em}
+.nom .retirer{border:0;background:var(--encre);color:#fff;border-radius:999px;width:24px;height:24px;line-height:1;cursor:pointer;font-size:.9rem;display:grid;place-items:center;padding:0}
+.libre-btn{border:2px dashed #D9C9A8;background:transparent;border-radius:999px;padding:5px 14px;font-size:.92rem;font-weight:600;color:#7A5300;cursor:pointer;min-height:36px}
+.libre-btn:hover,.libre-btn:focus-visible{background:#FFF7DF;border-color:var(--or);outline:none}
+.renfort-btn{margin-top:12px}
+
+/* formulaire */
+form.inscrire{margin-top:14px;padding-top:14px;border-top:1px dashed var(--trait);display:grid;gap:10px}
+form.inscrire label{font-size:.88rem;font-weight:600;display:grid;gap:4px}
+form.inscrire label small{font-weight:400;color:var(--doux)}
+form.inscrire input[type=text]{width:100%;border:1px solid #CFC5B5;border-radius:12px;padding:12px 14px;background:#fff;font-size:1rem}
+form.inscrire input[type=text]:focus{outline:2px solid var(--or);border-color:var(--or)}
+.piege{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{border:0;border-radius:999px;padding:12px 20px;font-weight:700;cursor:pointer;font-size:.95rem;min-height:44px}
+.btn-rouge{background:var(--rouge);color:#fff}
+.btn-rouge:hover{background:#B70004}
+.btn-rouge[disabled]{opacity:.6;cursor:wait}
+.btn-vide{background:transparent;border:1px solid #CFC5B5}
+.btn-petit{padding:7px 14px;min-height:36px;font-size:.85rem;font-weight:600}
+.form-erreur{color:#8A1212;font-size:.9rem;margin:0}
+
+/* organisation */
+.orga-outils{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+details.journal{background:var(--blanc);border:1px solid var(--trait);border-radius:14px;padding:12px 16px;margin:12px 0}
+details.journal summary{cursor:pointer;font-weight:600}
+details.journal ol{margin:10px 0 0;padding-left:20px;font-size:.85rem;max-height:320px;overflow:auto}
+
+/* pied, toast */
+footer{margin:40px 0 0;padding:24px 0 40px;border-top:1px solid var(--trait);font-size:.88rem;color:var(--doux)}
+footer .conteneur{display:grid;gap:6px}
+footer button{background:none;border:0;padding:0;color:var(--doux);text-decoration:underline;cursor:pointer;font-size:.85rem;justify-self:start}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(140%);background:var(--encre);color:#fff;padding:12px 18px;border-radius:14px;max-width:min(92vw,520px);font-size:.95rem;box-shadow:0 10px 30px rgba(0,0,0,.25);transition:transform .3s;z-index:20}
+.toast.visible{transform:translateX(-50%) translateY(0)}
+.maj{font-size:.8rem;color:var(--doux)}
+
+@media (max-width:620px){
+  header.tete .conteneur{gap:14px;padding-top:16px;padding-bottom:16px}
+  .logo{width:84px;height:84px}
+  .etapes{grid-template-columns:1fr}
+}
+@media print{
+  .bandeau-orga,.bandeau-test,.etapes,.sans-compte,.filtre,.mes,.libre-btn,.renfort-btn,form.inscrire,.orga-outils,details.journal,footer,.toast,.retirer{display:none !important}
+  body{background:#fff}
+  .stand{break-inside:avoid;border-color:#999}
+  .jauge{border-color:#999}
+}
+</style>
+</head>
+<body>
+<div id="bandeau-test" class="bandeau-test" hidden>Mode test : ces inscriptions ne comptent pas pour la vraie liste.</div>
+<div id="bandeau-orga" class="bandeau-orga" hidden>
+  <div class="conteneur">
+    <strong>Mode organisation</strong>
+    <button type="button" id="b-csv">Télécharger la liste (Excel)</button>
+    <button type="button" id="b-imprimer">Imprimer</button>
+    <button type="button" id="b-sortir">Quitter</button>
+  </div>
+</div>
+
+<header class="tete">
+  <div class="conteneur">
+    <img class="logo" src="logo-life-party.png" alt="Life Party" width="450" height="450">
+    <div>
+      <span class="surtitre">Let's Play !</span>
+      <h1>Bénévoles de la Life&nbsp;Party&nbsp;2026</h1>
+      <p class="date"><b>Samedi 31 octobre 2026</b>, merci de donner un coup de main&nbsp;!</p>
+    </div>
+  </div>
+</header>
+
+<main class="conteneur">
+  <ol class="etapes">
+    <li>Choisis un stand où il reste une <b>place libre</b>.</li>
+    <li>Écris ton <b>prénom</b> et l'<b>initiale de ton nom</b>.</li>
+    <li>C'est enregistré tout de suite, tout le monde voit la liste.</li>
+  </ol>
+  <p class="sans-compte">Pas besoin de compte ni de mot de passe. Tu peux t'inscrire sur plusieurs stands.</p>
+
+  <div id="erreur" class="alerte erreur" role="alert" hidden></div>
+  <div id="contenu"><p class="chargement">Chargement de la liste…</p></div>
+
+  <div id="outils-orga" class="orga-outils" hidden></div>
+  <details id="journal" class="journal" hidden>
+    <summary>Historique des inscriptions et retraits</summary>
+    <ol id="journal-liste"></ol>
+  </details>
+</main>
+
+<footer>
+  <div class="conteneur">
+    <span>Une question, un empêchement&nbsp;? Écris à <a href="mailto:contact@choisislavie.org">contact@choisislavie.org</a>.</span>
+    <span>La Life Party, une alternative joyeuse à Halloween : <a href="https://choisislavie.org/life-party/">choisislavie.org/life-party</a></span>
+    <span class="maj" id="maj"></span>
+    <button type="button" id="b-orga">Accès organisation</button>
+  </div>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+  const API = 'https://lifeparty-benevoles.natquinson.workers.dev';
+  const params = new URLSearchParams(location.search);
+  const INSTANCE = params.has('test') ? 'test' : 'live';
+  const CLES = { mes: 'lp26-mes-' + INSTANCE, prenom: 'lp26-prenom', orga: 'lp26-orga', filtre: 'lp26-filtre' };
+
+  // stockage local : confort uniquement (mes inscriptions, prenom pre-rempli), la page marche sans
+  const lire = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
+  const ecrire = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* navigation privee */ } };
+  const effacer = k => { try { localStorage.removeItem(k); } catch { /* navigation privee */ } };
+
+  // lien organisation : #organisation=CODE, enregistre puis retire de l'adresse
+  const m = location.hash.match(/^#organisation=(.+)$/);
+  if (m) { ecrire(CLES.orga, decodeURIComponent(m[1])); history.replaceState(null, '', location.pathname + location.search); }
+  let codeOrga = lire(CLES.orga, '');
+
+  let donnees = null;          // { stands, inscrits, maj }
+  let ouvert = null;           // id du stand dont le formulaire est ouvert
+  let mes = lire(CLES.mes, []); // [{ id, cle, stand, prenom }]
+  let seulementLibres = lire(CLES.filtre, false);
+  let envoiEnCours = false;
+
+  const $ = id => document.getElementById(id);
+  function el(tag, attrs, ...enfants) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === false || v == null) continue;
+      if (k === 'class') n.className = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (k === 'text') n.textContent = v;
+      else n.setAttribute(k, v === true ? '' : v);
+    }
+    for (const e of enfants.flat()) if (e != null && e !== false) n.append(e.nodeType ? e : document.createTextNode(e));
+    return n;
+  }
+
+  let minuterieToast;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('visible');
+    clearTimeout(minuterieToast); minuterieToast = setTimeout(() => t.classList.remove('visible'), 5000);
+  }
+  function montrerErreur(msg) {
+    const e = $('erreur'); e.replaceChildren();
+    if (!msg) { e.hidden = true; return; }
+    e.append(el('div', { text: msg }), el('button', { type: 'button', class: 'btn btn-vide btn-petit', onclick: () => charger(true) }, 'Réessayer'));
+    e.hidden = false;
+  }
+
+  async function api(chemin, corps) {
+    const opts = { method: corps ? 'POST' : 'GET', headers: {}, cache: 'no-store' };
+    if (corps) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(corps); }
+    if (codeOrga) opts.headers['X-Code-Organisation'] = codeOrga;
+    let r;
+    try { r = await fetch(`${API}${chemin}?instance=${INSTANCE}`, opts); }
+    catch (e) { throw new Error('Impossible de joindre le serveur des inscriptions (' + (e && e.message || 'réseau') + '). Vérifie ta connexion internet.'); }
+    let d = {};
+    try { d = await r.json(); } catch { /* reponse vide */ }
+    if (!r.ok) {
+      if (r.status === 403 && codeOrga && /organisation incorrect/i.test(d.erreur || '')) { quitterOrga(); }
+      const err = new Error(d.erreur || `Le serveur a répondu ${r.status}.`); err.status = r.status; throw err;
+    }
+    return d;
+  }
+
+  const inscritsDe = id => donnees.inscrits.filter(i => i.stand === id);
+  const estMoi = id => mes.some(x => x.id === id);
+
+  function resume() {
+    const normaux = donnees.stands.filter(s => !s.renfort);
+    const total = normaux.reduce((a, s) => a + s.places, 0);
+    const pris = normaux.reduce((a, s) => a + Math.min(inscritsDe(s.id).length, s.places), 0);
+    const renforts = donnees.stands.filter(s => s.renfort).reduce((a, s) => a + inscritsDe(s.id).length, 0);
+    return { total, pris, libres: total - pris, renforts };
+  }
+
+  function rendu() {
+    if (!donnees) return;
+    // les inscriptions retirees par l'organisation disparaissent de « mes inscriptions »
+    const ids = new Set(donnees.inscrits.map(i => i.id));
+    const avant = mes.length; mes = mes.filter(x => ids.has(x.id)); if (mes.length !== avant) ecrire(CLES.mes, mes);
+
+    const r = resume();
+    const blocs = [];
+    blocs.push(el('div', { class: 'jauge' },
+      el('div', { class: 'jauge-ligne' },
+        el('div', { class: 'jauge-chiffre' }, r.libres > 0 ? `${r.libres} places libres ` : 'Tous les stands sont pourvus ', el('small', { text: `sur ${r.total}` })),
+        el('div', { class: 'jauge-chiffre' }, `${r.pris} `, el('small', { text: r.pris > 1 ? 'bénévoles inscrits' : 'bénévole inscrit' }))),
+      el('div', { class: 'barre', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(r.total), 'aria-valuenow': String(r.pris), 'aria-label': 'Places pourvues' },
+        el('span', { style: `width:${Math.round(100 * r.pris / Math.max(1, r.total))}%` })),
+      el('div', { class: 'jauge-pied' },
+        el('span', { text: r.renforts ? `+ ${r.renforts} en renfort` : 'Personne en renfort pour l’instant' }),
+        el('label', { class: 'filtre' },
+          el('input', { type: 'checkbox', checked: seulementLibres || null, onchange: e => { seulementLibres = e.target.checked; ecrire(CLES.filtre, seulementLibres); rendu(); } }),
+          'Seulement les stands avec des places libres'))));
+
+    if (mes.length) {
+      blocs.push(el('div', { class: 'mes' },
+        el('h2', { text: 'Mes inscriptions sur cet appareil' }),
+        el('ul', {}, mes.map(x => {
+          const s = donnees.stands.find(s => s.id === x.stand);
+          return el('li', {}, el('span', {}, el('b', { text: x.prenom }), ` : ${s ? s.nom : x.stand}`),
+            el('button', { type: 'button', class: 'btn btn-vide btn-petit', onclick: () => retirer(x.id, x.cle, x.prenom, s ? s.nom : '') }, 'Me retirer'));
+        })),
+        el('p', { text: 'Tu ne peux retirer une inscription que depuis l’appareil qui a servi à la faire. Sinon, préviens l’organisation.' })));
+    }
+
+    const groupes = [];
+    for (const s of donnees.stands) {
+      let g = groupes.find(x => x.nom === s.groupe);
+      if (!g) groupes.push(g = { nom: s.groupe, stands: [] });
+      g.stands.push(s);
+    }
+    for (const g of groupes) {
+      const visibles = g.stands.filter(s => !seulementLibres || s.renfort || inscritsDe(s.id).length < s.places);
+      if (!visibles.length) continue;
+      const libres = g.stands.filter(s => !s.renfort).reduce((a, s) => a + Math.max(0, s.places - inscritsDe(s.id).length), 0);
+      const sousTitre = g.stands.some(s => s.renfort) ? 'Pour ceux qui veulent aider sans stand précis' : (libres ? `${libres} ${libres > 1 ? 'places libres' : 'place libre'}` : 'Complet, merci !');
+      blocs.push(el('section', { class: 'groupe', 'aria-label': g.nom },
+        el('div', { class: 'groupe-tete' }, el('h2', { text: g.nom }), el('span', { text: sousTitre })),
+        el('div', { class: 'stands' }, visibles.map(carteStand))));
+    }
+    $('contenu').replaceChildren(...blocs);
+    $('maj').textContent = 'Liste mise à jour à ' + new Date(donnees.maj).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const champ = ouvert && document.querySelector(`form[data-stand="${ouvert}"] input[name=prenom]`);
+    if (champ && document.activeElement === document.body) champ.focus();
+  }
+
+  function carteStand(s) {
+    const liste = inscritsDe(s.id);
+    const libres = Math.max(0, s.places - liste.length);
+    const complet = libres === 0;
+    const compteur = s.renfort
+      ? el('span', { class: 'compteur', text: `${liste.length} ${liste.length > 1 ? 'disponibles' : 'disponible'}` })
+      : el('span', { class: 'compteur ' + (complet ? 'plein' : 'libre'), text: complet ? `Complet ${liste.length}/${s.places}` : `${liste.length}/${s.places}` });
+
+    const noms = liste.map(i => el('span', { class: 'nom' + (estMoi(i.id) ? ' moi' : '') },
+      i.prenom,
+      i.remarque ? el('span', { class: 'rq', text: `(${i.remarque})` }) : null,
+      estMoi(i.id) ? el('span', { class: 'moi-tag', text: 'toi' }) : null,
+      codeOrga ? el('button', { type: 'button', class: 'retirer', title: `Retirer ${i.prenom}`, 'aria-label': `Retirer ${i.prenom}`, onclick: () => retirer(i.id, null, i.prenom, s.nom) }, '×') : null));
+
+    const places = el('div', { class: 'places' }, noms);
+    if (!s.renfort && ouvert !== s.id) {
+      for (let k = 0; k < libres; k++) {
+        places.append(el('button', { type: 'button', class: 'libre-btn', 'aria-label': `Place libre : m'inscrire sur ${s.nom}`, onclick: () => ouvrir(s.id) }, k === 0 ? '+ Je m’inscris ici' : '+ Place libre'));
+      }
+    }
+    const carte = el('article', { class: 'stand' + (complet && !s.renfort ? ' complet' : '') },
+      el('div', { class: 'stand-tete' }, el('h3', { text: s.nom }), compteur), places);
+    if (s.renfort && ouvert !== s.id && !complet) {
+      carte.append(el('button', { type: 'button', class: 'btn btn-vide btn-petit renfort-btn', onclick: () => ouvrir(s.id) }, '+ Je suis disponible en renfort'));
+    }
+    if (ouvert === s.id) carte.append(formulaire(s));
+    return carte;
+  }
+
+  function formulaire(s) {
+    const erreur = el('p', { class: 'form-erreur', role: 'alert', hidden: true });
+    const prenom = el('input', { type: 'text', name: 'prenom', required: true, maxlength: '40', autocomplete: 'name', autocapitalize: 'words', placeholder: 'Ex. : Marie D.', value: lire(CLES.prenom, '') });
+    const remarque = el('input', { type: 'text', name: 'remarque', maxlength: '120', placeholder: 'Ex. : seulement l’après-midi' });
+    const piege = el('input', { type: 'text', name: 'site', tabindex: '-1', autocomplete: 'off' });
+    const valider = el('button', { type: 'submit', class: 'btn btn-rouge' }, s.renfort ? 'Valider' : 'Valider mon inscription');
+    const f = el('form', { class: 'inscrire', 'data-stand': s.id, novalidate: true },
+      el('label', {}, 'Ton prénom et l’initiale de ton nom', prenom),
+      el('label', {}, el('span', {}, 'Une précision ', el('small', { text: '(facultatif, sans téléphone : la liste est visible par tous)' })), remarque),
+      el('div', { class: 'piege', 'aria-hidden': 'true' }, el('label', {}, 'Ne pas remplir', piege)),
+      erreur,
+      el('div', { class: 'actions' }, valider, el('button', { type: 'button', class: 'btn btn-vide', onclick: fermer }, 'Annuler')));
+    f.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      if (envoiEnCours) return;
+      const p = prenom.value.replace(/\s+/g, ' ').trim();
+      if (p.length < 2) { erreur.textContent = 'Écris ton prénom et l’initiale de ton nom.'; erreur.hidden = false; prenom.focus(); return; }
+      envoiEnCours = true; valider.disabled = true; valider.textContent = 'Enregistrement…'; erreur.hidden = true;
+      try {
+        const d = await api('/api/inscription', { stand: s.id, prenom: p, remarque: remarque.value.trim(), site: piege.value });
+        if (d.id) {
+          mes.push({ id: d.id, cle: d.cle, stand: s.id, prenom: p }); ecrire(CLES.mes, mes);
+          ecrire(CLES.prenom, p);
+          donnees = d; ouvert = null; majDiffere = false; rendu();
+          toast(`Merci ${p} ! C'est noté pour « ${s.nom} ».`);
+        }
+      } catch (e) {
+        erreur.textContent = e.message; erreur.hidden = false;
+        valider.disabled = false; valider.textContent = s.renfort ? 'Valider' : 'Valider mon inscription';
+        if (e.status === 409) charger(false, true);
+      } finally { envoiEnCours = false; }
+    });
+    setTimeout(() => (prenom.value ? remarque : prenom).focus(), 0);
+    return f;
+  }
+
+  // un formulaire en cours de saisie n'est pas detruit par le rafraichissement automatique :
+  // la mise a jour mise de cote (majDiffere) est appliquee a la fermeture
+  let majDiffere = false;
+  function ouvrir(id) { ouvert = id; rendu(); }
+  function fermer() { ouvert = null; rendu(); if (majDiffere) { majDiffere = false; charger(false); } }
+
+  async function retirer(id, cle, prenom, nomStand) {
+    if (!confirm(`Retirer ${prenom} de « ${nomStand} » ?`)) return;
+    try {
+      donnees = await api('/api/retrait', cle ? { id, cle } : { id });
+      mes = mes.filter(x => x.id !== id); ecrire(CLES.mes, mes);
+      rendu(); toast(`${prenom} a été retiré(e) de « ${nomStand} ».`);
+      if (codeOrga && !$('journal').hidden) chargerJournal();
+    } catch (e) { toast(e.message); charger(false, true); }
+  }
+
+  async function charger(montrerChargement, garderFormulaire) {
+    if (montrerChargement) montrerErreur('');
+    try {
+      const d = await api('/api/planning');
+      donnees = d; montrerErreur('');
+      if (ouvert && !garderFormulaire) { majDiffere = true; return; }
+      if (ouvert && garderFormulaire) {
+        const f = document.querySelector('form.inscrire');
+        const valeurs = f ? [f.prenom.value, f.remarque.value, f.querySelector('.form-erreur').textContent] : null;
+        rendu();
+        const g = document.querySelector('form.inscrire');
+        if (g && valeurs) { g.prenom.value = valeurs[0]; g.remarque.value = valeurs[1]; if (valeurs[2]) { const er = g.querySelector('.form-erreur'); er.textContent = valeurs[2]; er.hidden = false; } }
+        return;
+      }
+      rendu();
+    } catch (e) {
+      if (!donnees) $('contenu').replaceChildren();
+      montrerErreur('La liste n’a pas pu être chargée. ' + e.message);
+    }
+  }
+  setInterval(() => { if (document.visibilityState === 'visible') charger(false); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') charger(false); });
+
+  // organisation
+  function quitterOrga() { codeOrga = ''; effacer(CLES.orga); majOrga(); rendu(); }
+  function majOrga() {
+    const actif = Boolean(codeOrga);
+    $('bandeau-orga').hidden = !actif; $('journal').hidden = !actif;
+    $('b-orga').hidden = actif;
+    if (actif) chargerJournal();
+  }
+  async function chargerJournal() {
+    try {
+      const d = await api('/api/journal');
+      $('journal-liste').replaceChildren(...d.journal.map(j => el('li', {},
+        el('b', { text: new Date(j.ts).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }), ` ${j.action} : ${j.detail}`)));
+    } catch (e) { $('journal-liste').replaceChildren(el('li', { text: 'Historique indisponible : ' + e.message })); }
+  }
+  $('b-orga').addEventListener('click', async () => {
+    const code = prompt('Code organisation :');
+    if (!code) return;
+    codeOrga = code.trim();
+    try { await api('/api/journal'); ecrire(CLES.orga, codeOrga); majOrga(); rendu(); toast('Mode organisation activé.'); }
+    catch (e) { codeOrga = ''; toast(e.message); }
+  });
+  $('b-sortir').addEventListener('click', () => { quitterOrga(); toast('Mode organisation désactivé sur cet appareil.'); });
+  $('b-imprimer').addEventListener('click', () => { seulementLibres = false; ouvert = null; rendu(); window.print(); });
+  $('b-csv').addEventListener('click', () => {
+    if (!donnees) return;
+    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const lignes = [['Groupe', 'Stand', 'Prénom', 'Précision', 'Inscrit le'].map(q).join(';')];
+    for (const s of donnees.stands) {
+      const liste = inscritsDe(s.id);
+      if (!liste.length) lignes.push([s.groupe, s.nom, '', '', ''].map(q).join(';'));
+      for (const i of liste) lignes.push([s.groupe, s.nom, i.prenom, i.remarque, new Date(i.ts).toLocaleString('fr-FR')].map(q).join(';'));
+    }
+    const blob = new Blob(['﻿' + lignes.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: 'benevoles-life-party-2026.csv' });
+    document.body.append(a); a.click(); a.remove();
+  });
+
+  if (INSTANCE === 'test') $('bandeau-test').hidden = false;
+  majOrga();
+  charger(true);
+})();
+</script>
+</body>
+</html>
