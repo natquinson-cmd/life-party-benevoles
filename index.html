@@ -86,11 +86,12 @@ section.groupe{margin:28px 0 10px}
 .compteur.libre{background:#FFF1C9;color:#7A5300}
 .compteur.plein{background:var(--vert-clair);color:var(--vert)}
 .places{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-.nom{display:inline-flex;align-items:center;gap:6px;background:var(--pierre);border-radius:999px;padding:6px 12px;font-size:.92rem;font-weight:500;max-width:100%}
-.nom .rq{font-weight:400;color:var(--doux);font-size:.82rem;overflow-wrap:anywhere}
-.nom.moi{background:#FFF1C9;box-shadow:inset 0 0 0 2px var(--or)}
-.nom .moi-tag{font-size:.72rem;font-weight:700;color:#7A5300;text-transform:uppercase;letter-spacing:.04em}
-.nom .retirer{border:0;background:var(--encre);color:#fff;border-radius:999px;width:32px;height:32px;line-height:1;cursor:pointer;font-size:.9rem;display:grid;place-items:center;padding:0}
+.nom{display:inline-flex;align-items:center;gap:6px;background:var(--vert);color:#fff;border-radius:999px;padding:8px 14px 8px 10px;min-height:44px;font-size:.95rem;font-weight:700;max-width:100%;box-shadow:0 2px 6px rgba(30,122,70,.25)}
+.nom::before{content:'✓';display:grid;place-items:center;width:22px;height:22px;flex:none;border-radius:50%;background:rgba(255,255,255,.22);font-size:.8rem}
+.nom .rq{font-weight:400;color:rgba(255,255,255,.88);font-size:.82rem;overflow-wrap:anywhere}
+.nom.moi{box-shadow:0 0 0 3px var(--or),0 2px 6px rgba(30,122,70,.25)}
+.nom .moi-tag{font-size:.7rem;font-weight:700;color:var(--encre);background:var(--or);border-radius:999px;padding:2px 7px;text-transform:uppercase;letter-spacing:.04em}
+.nom .retirer{border:0;background:rgba(0,0,0,.35);color:#fff;border-radius:999px;width:32px;height:32px;line-height:1;cursor:pointer;font-size:.9rem;display:grid;place-items:center;padding:0}
 .libre-btn{border:2px dashed #D9C9A8;background:transparent;border-radius:999px;padding:8px 16px;font-size:.92rem;font-weight:600;color:#7A5300;cursor:pointer;min-height:44px}
 .libre-btn:hover,.libre-btn:focus-visible{background:#FFF7DF;border-color:var(--or);outline:none}
 .renfort-btn{margin-top:12px}
