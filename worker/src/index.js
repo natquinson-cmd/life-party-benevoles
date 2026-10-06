@@ -30,7 +30,7 @@ export const STANDS = [
 const PAR_ID = new Map(STANDS.map(s => [s.id, s]));
 
 const INSTANCES = new Set(['live', 'test']);
-const LIMITE_ACTIONS = 12;              // actions par adresse IP...
+const LIMITE_ACTIONS = 40;              // actions abouties par adresse IP (Wi-Fi d'eglise partage)...
 const FENETRE_MS = 10 * 60 * 1000;      // ...sur 10 minutes
 const PRENOM_RE = /^\p{L}[\p{L}\p{M} .'’-]{1,39}$/u;
 const CONTACT_RE = /(\d[\s.-]?){6,}|@|https?:|www\./i;   // telephone, e-mail ou lien : refuses
@@ -41,8 +41,9 @@ class Refus extends Error {
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 const sha256 = async txt => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)));
-const normalise = s => s.normalize('NFC').replace(/\s+/g, ' ').trim();
-const cleComparaison = s => normalise(s).toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z]/g, '');
+// NFKC + suppression des caracteres invisibles (formatage, fillers coreens) et des marques combinantes empilees
+const normalise = s => s.normalize('NFKC').replace(/[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu, '').replace(/(\p{M}{2})\p{M}+/gu, '$1').replace(/\s+/g, ' ').trim();
+const cleComparaison = s => normalise(s).normalize('NFKD').toLowerCase().replace(/\p{M}/gu, '').replace(/[^\p{L}]/gu, '');
 
 function egalTempsConstant(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
@@ -74,7 +75,7 @@ export class Planning extends DurableObject {
     const now = Date.now();
     this.q('DELETE FROM actions WHERE ts < ?', now - FENETRE_MS);
     const n = this.q('SELECT COUNT(*) AS n FROM actions WHERE ip = ?', ip).one().n;
-    if (n >= LIMITE_ACTIONS) throw new Refus(429, 'Trop de tentatives depuis cette connexion. Réessaie dans quelques minutes.');
+    if (n >= LIMITE_ACTIONS) throw new Refus(429, 'Beaucoup d’inscriptions viennent d’être faites depuis ce réseau (Wi-Fi partagé ?). Passe en 4G ou réessaie dans 10 minutes.');
     this.q('INSERT INTO actions (ip, ts) VALUES (?, ?)', ip, now);
   }
 
@@ -84,16 +85,16 @@ export class Planning extends DurableObject {
       // s'enchainent ensuite sans rendre la main, deux inscriptions ne peuvent donc pas se croiser
       const cle = hex(crypto.getRandomValues(new Uint8Array(16)));
       const cleHash = await sha256(cle);
-      if (!admin) this.compteAction(ip);
       const s = PAR_ID.get(stand);
       if (!s) throw new Refus(400, 'Stand inconnu. Recharge la page.');
       prenom = normalise(String(prenom || ''));
-      remarque = normalise(String(remarque || '')).slice(0, 120);
+      remarque = Array.from(normalise(String(remarque || ''))).slice(0, 120).join('');
       if (!PRENOM_RE.test(prenom)) throw new Refus(400, "Écris ton prénom et l'initiale de ton nom (lettres seulement, 2 à 40 caractères).");
       if (CONTACT_RE.test(remarque)) throw new Refus(400, "Pas de numéro de téléphone, d'e-mail ni de lien dans la remarque : la liste est visible par tous.");
       const deja = this.q('SELECT prenom FROM inscrits WHERE stand = ?', stand).toArray();
       if (deja.some(r => cleComparaison(r.prenom) === cleComparaison(prenom))) throw new Refus(409, `${prenom} est déjà inscrit(e) sur ce stand.`);
       if (deja.length >= s.places) throw new Refus(409, s.renfort ? 'La liste des renforts est complète, merci !' : 'Ce stand vient d’être complété. Choisis un autre stand ou inscris-toi en renfort.');
+      if (!admin) this.compteAction(ip);
       const id = crypto.randomUUID();
       const ts = Date.now();
       this.q('INSERT INTO inscrits (id, stand, prenom, remarque, cle_hash, ts) VALUES (?, ?, ?, ?, ?, ?)', id, stand, prenom, remarque, cleHash, ts);
@@ -106,12 +107,12 @@ export class Planning extends DurableObject {
 
   async retirer({ id, cle }, ip, admin) {
     try {
-      if (!admin) this.compteAction(ip);
       const r = this.q('SELECT stand, prenom, cle_hash FROM inscrits WHERE id = ?', String(id || '')).toArray()[0];
       if (!r) throw new Refus(404, 'Cette inscription a déjà été retirée.');
       if (!admin && !egalTempsConstant(await sha256(String(cle || '')), r.cle_hash)) {
         throw new Refus(403, "Tu ne peux retirer que tes propres inscriptions, depuis l'appareil qui a servi à t'inscrire. Sinon, préviens l'organisation.");
       }
+      if (!admin) this.compteAction(ip);
       this.q('DELETE FROM inscrits WHERE id = ?', String(id));
       this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), admin ? 'retrait (organisation)' : 'retrait', `${r.prenom} | ${PAR_ID.get(r.stand)?.nom || r.stand}`);
       return this.liste();

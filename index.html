@@ -44,6 +44,9 @@ h1{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:clamp(1.7rem,5
 .etapes li{background:var(--blanc);border:1px solid var(--trait);border-radius:14px;padding:12px 12px 12px 46px;position:relative;font-size:.93rem;line-height:1.35}
 .etapes li::before{counter-increment:e;content:counter(e);position:absolute;left:12px;top:11px;width:26px;height:26px;border-radius:50%;background:var(--rouge);color:#fff;font-weight:700;display:grid;place-items:center;font-size:.85rem}
 .sans-compte{margin:8px 0 0;font-size:.9rem;color:var(--doux)}
+.aller{margin:14px 0 0}
+.aller .btn{display:inline-flex;align-items:center;text-decoration:none}
+#contenu{scroll-margin-top:12px}
 
 /* jauge */
 .jauge{background:var(--blanc);border:1px solid var(--trait);border-radius:16px;padding:16px;margin:18px 0}
@@ -87,8 +90,8 @@ section.groupe{margin:28px 0 10px}
 .nom .rq{font-weight:400;color:var(--doux);font-size:.82rem;overflow-wrap:anywhere}
 .nom.moi{background:#FFF1C9;box-shadow:inset 0 0 0 2px var(--or)}
 .nom .moi-tag{font-size:.72rem;font-weight:700;color:#7A5300;text-transform:uppercase;letter-spacing:.04em}
-.nom .retirer{border:0;background:var(--encre);color:#fff;border-radius:999px;width:24px;height:24px;line-height:1;cursor:pointer;font-size:.9rem;display:grid;place-items:center;padding:0}
-.libre-btn{border:2px dashed #D9C9A8;background:transparent;border-radius:999px;padding:5px 14px;font-size:.92rem;font-weight:600;color:#7A5300;cursor:pointer;min-height:36px}
+.nom .retirer{border:0;background:var(--encre);color:#fff;border-radius:999px;width:32px;height:32px;line-height:1;cursor:pointer;font-size:.9rem;display:grid;place-items:center;padding:0}
+.libre-btn{border:2px dashed #D9C9A8;background:transparent;border-radius:999px;padding:8px 16px;font-size:.92rem;font-weight:600;color:#7A5300;cursor:pointer;min-height:44px}
 .libre-btn:hover,.libre-btn:focus-visible{background:#FFF7DF;border-color:var(--or);outline:none}
 .renfort-btn{margin-top:12px}
 
@@ -105,7 +108,7 @@ form.inscrire input[type=text]:focus{outline:2px solid var(--or);border-color:va
 .btn-rouge:hover{background:#B70004}
 .btn-rouge[disabled]{opacity:.6;cursor:wait}
 .btn-vide{background:transparent;border:1px solid #CFC5B5}
-.btn-petit{padding:7px 14px;min-height:36px;font-size:.85rem;font-weight:600}
+.btn-petit{padding:9px 16px;min-height:44px;font-size:.85rem;font-weight:600}
 .form-erreur{color:#8A1212;font-size:.9rem;margin:0}
 
 /* organisation */
@@ -117,7 +120,7 @@ details.journal ol{margin:10px 0 0;padding-left:20px;font-size:.85rem;max-height
 /* pied, toast */
 footer{margin:40px 0 0;padding:24px 0 40px;border-top:1px solid var(--trait);font-size:.88rem;color:var(--doux)}
 footer .conteneur{display:grid;gap:6px}
-footer button{background:none;border:0;padding:0;color:var(--doux);text-decoration:underline;cursor:pointer;font-size:.85rem;justify-self:start}
+footer button{background:none;border:0;padding:12px 0;color:var(--doux);text-decoration:underline;cursor:pointer;font-size:.85rem;justify-self:start}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(140%);background:var(--encre);color:#fff;padding:12px 18px;border-radius:14px;max-width:min(92vw,520px);font-size:.95rem;box-shadow:0 10px 30px rgba(0,0,0,.25);transition:transform .3s;z-index:20}
 .toast.visible{transform:translateX(-50%) translateY(0)}
 .maj{font-size:.8rem;color:var(--doux)}
@@ -159,11 +162,12 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
 
 <main class="conteneur">
   <ol class="etapes">
-    <li>Choisis un stand où il reste une <b>place libre</b>.</li>
-    <li>Écris ton <b>prénom</b> et l'<b>initiale de ton nom</b>.</li>
-    <li>C'est enregistré tout de suite, tout le monde voit la liste.</li>
+    <li>Descends jusqu'au stand de ton choix et touche <b>« + Je m’inscris ici »</b>.</li>
+    <li>Écris ton <b>prénom</b> et l'<b>initiale de ton nom</b>, puis touche <b>« Valider mon inscription »</b>.</li>
+    <li>C'est enregistré tout de suite : ton nom apparaît dans la liste.</li>
   </ol>
   <p class="sans-compte">Pas besoin de compte ni de mot de passe. Tu peux t'inscrire sur plusieurs stands.</p>
+  <p class="aller"><a class="btn btn-rouge" href="#contenu">Voir les stands et m’inscrire</a></p>
 
   <div id="erreur" class="alerte erreur" role="alert" hidden></div>
   <div id="contenu"><p class="chargement">Chargement de la liste…</p></div>
@@ -209,6 +213,9 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
   let mes = lire(CLES.mes, []); // [{ id, cle, stand, prenom }]
   let seulementLibres = lire(CLES.filtre, false);
   let envoiEnCours = false;
+  let ecritures = 0;             // numero de la derniere ecriture : une liste chargee avant est ignoree
+  const majMes = f => { mes = f(lire(CLES.mes, mes)); ecrire(CLES.mes, mes); };
+  window.addEventListener('storage', e => { if (e.key === CLES.mes) { mes = lire(CLES.mes, []); rendu(); } });
 
   const $ = id => document.getElementById(id);
   function el(tag, attrs, ...enfants) {
@@ -267,7 +274,7 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
     if (!donnees) return;
     // les inscriptions retirees par l'organisation disparaissent de « mes inscriptions »
     const ids = new Set(donnees.inscrits.map(i => i.id));
-    const avant = mes.length; mes = mes.filter(x => ids.has(x.id)); if (mes.length !== avant) ecrire(CLES.mes, mes);
+    if (mes.some(x => !ids.has(x.id) && donnees.maj > (x.cree || 0))) majMes(l => l.filter(x => ids.has(x.id) || donnees.maj <= (x.cree || 0)));
 
     const r = resume();
     const blocs = [];
@@ -301,7 +308,7 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
       g.stands.push(s);
     }
     for (const g of groupes) {
-      const visibles = g.stands.filter(s => !seulementLibres || s.renfort || inscritsDe(s.id).length < s.places);
+      const visibles = g.stands.filter(s => s.id === ouvert || !seulementLibres || s.renfort || inscritsDe(s.id).length < s.places);
       if (!visibles.length) continue;
       const libres = g.stands.filter(s => !s.renfort).reduce((a, s) => a + Math.max(0, s.places - inscritsDe(s.id).length), 0);
       const sousTitre = g.stands.some(s => s.renfort) ? 'Pour ceux qui veulent aider sans stand précis' : (libres ? `${libres} ${libres > 1 ? 'places libres' : 'place libre'}` : 'Complet, merci !');
@@ -363,9 +370,10 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
       if (p.length < 2) { erreur.textContent = 'Écris ton prénom et l’initiale de ton nom.'; erreur.hidden = false; prenom.focus(); return; }
       envoiEnCours = true; valider.disabled = true; valider.textContent = 'Enregistrement…'; erreur.hidden = true;
       try {
+        ecritures++;
         const d = await api('/api/inscription', { stand: s.id, prenom: p, remarque: remarque.value.trim(), site: piege.value });
         if (d.id) {
-          mes.push({ id: d.id, cle: d.cle, stand: s.id, prenom: p }); ecrire(CLES.mes, mes);
+          majMes(l => [...l.filter(x => x.id !== d.id), { id: d.id, cle: d.cle, stand: s.id, prenom: p, cree: d.maj }]);
           ecrire(CLES.prenom, p);
           donnees = d; ouvert = null; majDiffere = false; rendu();
           toast(`Merci ${p} ! C'est noté pour « ${s.nom} ».`);
@@ -373,7 +381,7 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
       } catch (e) {
         erreur.textContent = e.message; erreur.hidden = false;
         valider.disabled = false; valider.textContent = s.renfort ? 'Valider' : 'Valider mon inscription';
-        if (e.status === 409) charger(false, true);
+        if (e.status === 409) { toast(e.message); charger(false, true); }
       } finally { envoiEnCours = false; }
     });
     setTimeout(() => (prenom.value ? remarque : prenom).focus(), 0);
@@ -389,8 +397,9 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
   async function retirer(id, cle, prenom, nomStand) {
     if (!confirm(`Retirer ${prenom} de « ${nomStand} » ?`)) return;
     try {
+      ecritures++;
       donnees = await api('/api/retrait', cle ? { id, cle } : { id });
-      mes = mes.filter(x => x.id !== id); ecrire(CLES.mes, mes);
+      majMes(l => l.filter(x => x.id !== id));
       rendu(); toast(`${prenom} a été retiré(e) de « ${nomStand} ».`);
       if (codeOrga && !$('journal').hidden) chargerJournal();
     } catch (e) { toast(e.message); charger(false, true); }
@@ -398,9 +407,12 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
 
   async function charger(montrerChargement, garderFormulaire) {
     if (montrerChargement) montrerErreur('');
+    const e0 = ecritures;
     try {
       const d = await api('/api/planning');
+      if (e0 !== ecritures) return;   // une inscription ou un retrait a eu lieu pendant le chargement
       donnees = d; montrerErreur('');
+      if (ouvert && !document.querySelector('form.inscrire')) ouvert = null;
       if (ouvert && !garderFormulaire) { majDiffere = true; return; }
       if (ouvert && garderFormulaire) {
         const f = document.querySelector('form.inscrire');
@@ -445,7 +457,7 @@ footer button{background:none;border:0;padding:0;color:var(--doux);text-decorati
   $('b-imprimer').addEventListener('click', () => { seulementLibres = false; ouvert = null; rendu(); window.print(); });
   $('b-csv').addEventListener('click', () => {
     if (!donnees) return;
-    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const q = v => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = ' ' + t; return '"' + t.replace(/"/g, '""') + '"'; };
     const lignes = [['Groupe', 'Stand', 'Prénom', 'Précision', 'Inscrit le'].map(q).join(';')];
     for (const s of donnees.stands) {
       const liste = inscritsDe(s.id);
