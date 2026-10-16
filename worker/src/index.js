@@ -134,6 +134,8 @@ const VERSION_AUTORISATION = 'lets-play-2026-v1';   // texte d'autorisation affi
 const NOM_RE = /^\p{L}[\p{L}\p{M} .'’-]{1,59}$/u;
 const PRENOM_ENFANT_RE = /^\p{L}[\p{L}\p{M} .'’-]{0,29}$/u;
 const MAX_ENFANTS = 8;
+const ENVOIS_PAR_ADRESSE = 3;   // e-mails de confirmation par adresse sur 24 h
+const ENVOIS_PAR_JOUR = 200;    // plafond global sur 24 h (quota Brevo, abus)
 const ALPHABET_BILLET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const nouveauBillet = () => [...crypto.getRandomValues(new Uint8Array(10))].map(b => ALPHABET_BILLET[b % 32]).join('');
 
@@ -152,6 +154,7 @@ export class Familles extends DurableObject {
       try { this.q(`ALTER TABLE familles ADD COLUMN ${col}`); } catch { /* colonne deja presente */ }
     }
     this.q('CREATE UNIQUE INDEX IF NOT EXISTS familles_billet ON familles (billet)');
+    this.q('CREATE TABLE IF NOT EXISTS envois (adresse TEXT NOT NULL, ts INTEGER NOT NULL)');
   }
 
   compteAction(ip) {
@@ -243,6 +246,17 @@ export class Familles extends DurableObject {
       .map(f => ({ ...f, enfants: JSON.parse(f.enfants) }));
     const journal = this.q('SELECT ts, action, detail FROM journal ORDER BY ts DESC LIMIT 300').toArray();
     return { familles, journal, maj: Date.now() };
+  }
+
+  // une adresse saisie par un tiers ne doit pas pouvoir etre inondee : le formulaire est public et l'adresse non verifiee
+  async autoriserEnvoi(email) {
+    const adresse = await sha256(String(email).toLowerCase());
+    const now = Date.now();
+    this.q('DELETE FROM envois WHERE ts < ?', now - 24 * 3600 * 1000);
+    if (this.q('SELECT COUNT(*) AS n FROM envois').one().n >= ENVOIS_PAR_JOUR) return { ok: false, raison: 'plafond journalier des e-mails atteint' };
+    if (this.q('SELECT COUNT(*) AS n FROM envois WHERE adresse = ?', adresse).one().n >= ENVOIS_PAR_ADRESSE) return { ok: false, raison: 'trop d’e-mails vers cette adresse aujourd’hui' };
+    this.q('INSERT INTO envois (adresse, ts) VALUES (?, ?)', adresse, now);
+    return { ok: true };
   }
 
   noterEnvoi(id, ok, raison) {
@@ -373,7 +387,8 @@ export default {
           if (action === 'inscription') {
             const r = await familles.inscrire(corps, ip, admin);
             if (r && r.erreur) return resultat(r);
-            const envoi = await envoyerBillet(env, r, instance);
+            const permis = await familles.autoriserEnvoi(r.email);
+            const envoi = permis.ok ? await envoyerBillet(env, r, instance) : permis;
             await familles.noterEnvoi(r.id, envoi.ok, envoi.raison);
             return repondre({ ...r, email_envoye: envoi.ok }, 201);
           }
