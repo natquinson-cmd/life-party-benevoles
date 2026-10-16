@@ -15,6 +15,10 @@ class_name = "Planning"
 name = "FAMILLES"
 class_name = "Familles"
 
+[[services]]
+binding = "COURRIEL"
+service = "contact-form-choisislavie"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Planning"]
@@ -23,4 +27,5 @@ new_sqlite_classes = ["Planning"]
 tag = "v2"
 new_sqlite_classes = ["Familles"]
 
-# Secrets (wrangler secret put) : CODE_ORGANISATION (mode organisation de la page), SEL_IP (sel du hachage des IP)
+# Secrets (wrangler secret put) : CODE_ORGANISATION (mode organisation de la page), SEL_IP (sel du hachage des IP),
+# SECRET_INTERNE (partage avec contact-form-choisislavie, qui envoie les e-mails via Brevo)

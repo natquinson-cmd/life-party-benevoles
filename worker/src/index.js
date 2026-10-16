@@ -2,6 +2,7 @@
 // Un Durable Object (stockage SQLite) garde le planning : les ecritures y sont serialisees,
 // donc deux personnes ne peuvent pas prendre la derniere place d'un stand en meme temps.
 import { DurableObject } from 'cloudflare:workers';
+import qrcode from 'qrcode-generator';
 
 export const STANDS = [
   { id: 'accueil', groupe: 'Accueil', nom: "Accueil, permis de construire et droit à l'image", places: 3 },
@@ -147,7 +148,7 @@ export class Familles extends DurableObject {
     this.q('CREATE TABLE IF NOT EXISTS journal (ts INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');
     this.q('CREATE TABLE IF NOT EXISTS actions (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
     // billet d'entree (QR code du parent) et heure d'arrivee le jour J, ajoutes apres la creation de la table
-    for (const col of ['billet TEXT', 'arrivee INTEGER']) {
+    for (const col of ['billet TEXT', 'arrivee INTEGER', "email TEXT NOT NULL DEFAULT ''"]) {
       try { this.q(`ALTER TABLE familles ADD COLUMN ${col}`); } catch { /* colonne deja presente */ }
     }
     this.q('CREATE UNIQUE INDEX IF NOT EXISTS familles_billet ON familles (billet)');
@@ -169,7 +170,9 @@ export class Familles extends DurableObject {
       const parent = normalise(String(corps.parent || ''));
       const telephone = normalise(String(corps.telephone || ''));
       const signature = normalise(String(corps.signature || ''));
+      const email = String(corps.email || '').trim().toLowerCase();
       if (!NOM_RE.test(parent)) throw new Refus(400, 'Indique ton prénom et ton nom (lettres seulement).');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 120) throw new Refus(400, 'Adresse e-mail invalide.');
       const chiffres = telephone.replace(/\D/g, '');
       if (!/^\+?[0-9 .()-]{8,22}$/.test(telephone) || chiffres.length < 9 || chiffres.length > 15) throw new Refus(400, 'Numéro de téléphone invalide.');
       if (!Array.isArray(corps.enfants) || !corps.enfants.length) throw new Refus(400, 'Ajoute au moins un enfant.');
@@ -187,10 +190,10 @@ export class Familles extends DurableObject {
       const id = crypto.randomUUID();
       const ts = Date.now();
       const billet = nouveauBillet();
-      this.q(`INSERT INTO familles (id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, cle_hash, ts, billet)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, parent, telephone, JSON.stringify(enfants), enfants.length, corps.photo, signature, VERSION_AUTORISATION, cleHash, ts, billet);
+      this.q(`INSERT INTO familles (id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, cle_hash, ts, billet, email)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, parent, telephone, JSON.stringify(enfants), enfants.length, corps.photo, signature, VERSION_AUTORISATION, cleHash, ts, billet, email);
       this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', ts, 'inscription', `${parent} | ${enfants.length} enfant(s) | photos : ${corps.photo}`);
-      return { id, cle, billet, ts, parent, enfants, photo: corps.photo };
+      return { id, cle, billet, ts, parent, email, enfants, photo: corps.photo };
     } catch (e) {
       return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
     }
@@ -236,18 +239,70 @@ export class Familles extends DurableObject {
   }
 
   liste() {
-    const familles = this.q('SELECT id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, ts, arrivee FROM familles ORDER BY ts').toArray()
+    const familles = this.q('SELECT id, parent, telephone, email, enfants, nb_enfants, photo, signature, version_autorisation, ts, arrivee FROM familles ORDER BY ts').toArray()
       .map(f => ({ ...f, enfants: JSON.parse(f.enfants) }));
     const journal = this.q('SELECT ts, action, detail FROM journal ORDER BY ts DESC LIMIT 300').toArray();
     return { familles, journal, maj: Date.now() };
   }
 
-  // apres l'evenement : on efface les telephones, on garde les autorisations photo
+  noterEnvoi(id, ok, raison) {
+    const f = this.q('SELECT parent FROM familles WHERE id = ?', String(id)).toArray()[0];
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), ok ? 'e-mail de confirmation envoyé' : 'ÉCHEC e-mail de confirmation', `${f ? f.parent : id}${raison ? ' | ' + raison : ''}`);
+  }
+
+  // apres l'evenement : on efface les coordonnees (telephone, e-mail), on garde les autorisations photo
   effacerTelephones() {
-    this.q("UPDATE familles SET telephone = ''");
-    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'téléphones effacés (organisation)', '');
+    this.q("UPDATE familles SET telephone = '', email = ''");
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'coordonnées effacées (organisation)', '');
     return this.liste();
   }
+}
+
+const URL_ACCUEIL = 'https://choisislavie.org/life-party/lets-play/inscription/accueil/';
+const API_PUBLIQUE = 'https://lifeparty-benevoles.natquinson.workers.dev';
+const echapper = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const urlBillet = (billet, instance) => `${URL_ACCUEIL}${instance === 'test' ? '?test' : ''}#b=${billet}`;
+
+function imageBillet(texte) {
+  const q = qrcode(0, 'M'); q.addData(texte); q.make();
+  const b64 = q.createDataURL(8, 3).split(',')[1];
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+function courrielBillet(d, instance) {
+  const img = `${API_PUBLIQUE}/api/familles/qr/${d.billet}.gif${instance === 'test' ? '?instance=test' : ''}`;
+  const enfants = d.enfants.map(e => `<li>${echapper(e.prenom)}, ${e.age} ans</li>`).join('');
+  const photo = d.photo === 'oui' ? 'autorisées' : 'non autorisées (ton choix sera respecté)';
+  const html = `<!DOCTYPE html><html lang="fr"><body style="margin:0;padding:0;background:#F7F3ED;font-family:Arial,Helvetica,sans-serif;color:#15120F;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F3ED;padding:24px 12px;"><tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
+<tr><td align="center" style="padding:24px 24px 8px;"><img src="https://choisislavie.org/wp-content/uploads/2026/09/life-party-logo-hd-450.png" width="110" alt="Life Party" style="display:block;border:0;"></td></tr>
+<tr><td style="padding:8px 28px 0;text-align:center;"><h1 style="margin:0 0 6px;font-family:Georgia,serif;font-size:26px;">Inscription confirmée</h1>
+<p style="margin:0;font-size:15px;color:#6B6359;">Life Party « Let's Play »<br><b style="color:#15120F;">Samedi 31 octobre 2026, de 14 h à 17 h</b><br>91 rue Marius Berliet, 01000 Bourg-en-Bresse</p></td></tr>
+<tr><td style="padding:20px 28px 0;font-size:15px;line-height:1.6;"><p style="margin:0 0 6px;">Bonjour ${echapper(d.parent)},</p>
+<p style="margin:0 0 6px;">Merci pour ton inscription ! Voici les enfants inscrits :</p><ul style="margin:0 0 10px;padding-left:20px;">${enfants}</ul>
+<p style="margin:0;">Photos et vidéos : <b>${photo}</b></p></td></tr>
+<tr><td align="center" style="padding:22px 28px;"><table role="presentation" cellpadding="0" cellspacing="0" style="border:2px dashed #15120F;border-radius:16px;"><tr><td align="center" style="padding:16px 22px;">
+<p style="margin:0 0 6px;font-family:Georgia,serif;font-size:19px;font-weight:bold;">Ton billet d'entrée</p>
+<img src="${img}" width="220" height="220" alt="QR code du billet ${d.billet}" style="display:block;border:0;margin:0 auto;">
+<p style="margin:8px 0 0;font-family:Consolas,monospace;font-size:18px;font-weight:bold;letter-spacing:3px;">${d.billet}</p>
+<p style="margin:6px 0 0;font-size:13px;color:#6B6359;">Montre ce QR code (ou ce code) à l'accueil le jour J.</p></td></tr></table></td></tr>
+<tr><td style="padding:0 28px 24px;font-size:14px;line-height:1.6;color:#6B6359;"><p style="margin:0 0 8px;">Pense aux déguisements ! Pour modifier ou annuler l'inscription, réponds simplement à cet e-mail.</p>
+<p style="margin:0;">À très vite,<br><b style="color:#15120F;">L'équipe Life Party</b> (Choisis la Vie et l'association EEPV)</p></td></tr>
+</table></td></tr></table></body></html>`;
+  return { to: d.email, toName: d.parent, subject: "Ton billet pour la Life Party « Let's Play » du 31 octobre", html };
+}
+
+async function envoyerBillet(env, d, instance) {
+  if (!env.COURRIEL || !env.SECRET_INTERNE) return { ok: false, raison: 'envoi non configuré' };
+  try {
+    const r = await env.COURRIEL.fetch('https://interne/interne/envoi', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Secret-Interne': env.SECRET_INTERNE },
+      body: JSON.stringify(courrielBillet(d, instance)),
+    });
+    if (!r.ok) return { ok: false, raison: `envoi ${r.status} ${(await r.text()).slice(0, 120)}` };
+    return { ok: true };
+  } catch (e) { return { ok: false, raison: e.message }; }
 }
 
 function cors(request, env) {
@@ -299,6 +354,11 @@ export default {
       if (url.pathname.startsWith('/api/familles/')) {
         const familles = env.FAMILLES.get(env.FAMILLES.idFromName(instance));
         const action = url.pathname.slice('/api/familles/'.length);
+        // image QR du billet (pour l'e-mail) : ne revele rien d'autre que le code du billet
+        const mq = action.match(/^qr\/([A-Z0-9]{10})\.gif$/);
+        if (request.method === 'GET' && mq) {
+          return new Response(imageBillet(urlBillet(mq[1], instance)), { headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'public, max-age=86400' } });
+        }
         if (request.method === 'GET' && action === 'liste') {
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
           return repondre(await familles.liste());
@@ -310,7 +370,13 @@ export default {
           try { corps = JSON.parse(brut); } catch { throw new Refus(400, 'Requête illisible.'); }
           if (!corps || typeof corps !== 'object') throw new Refus(400, 'Requête illisible.');
           if (corps.site) return repondre({ ok: true });   // champ piege
-          if (action === 'inscription') return resultat(await familles.inscrire(corps, ip, admin), 201);
+          if (action === 'inscription') {
+            const r = await familles.inscrire(corps, ip, admin);
+            if (r && r.erreur) return resultat(r);
+            const envoi = await envoyerBillet(env, r, instance);
+            await familles.noterEnvoi(r.id, envoi.ok, envoi.raison);
+            return repondre({ ...r, email_envoye: envoi.ok }, 201);
+          }
           if (action === 'annulation') return resultat(await familles.annuler(corps, ip, admin));
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
           if (action === 'arrivee') return resultat(await familles.arrivee(corps));
