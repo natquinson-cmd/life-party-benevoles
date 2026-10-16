@@ -126,6 +126,99 @@ export class Planning extends DurableObject {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Inscriptions des familles (enfants + autorisation photo). Liste PRIVEE : lecture reservee a l'organisation.
+// ---------------------------------------------------------------------------------------------
+const VERSION_AUTORISATION = 'lets-play-2026-v1';   // texte d'autorisation affiche sur la page au moment de la signature
+const NOM_RE = /^\p{L}[\p{L}\p{M} .'’-]{1,59}$/u;
+const PRENOM_ENFANT_RE = /^\p{L}[\p{L}\p{M} .'’-]{0,29}$/u;
+const MAX_ENFANTS = 8;
+
+export class Familles extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    const sql = ctx.storage.sql;
+    this.q = (requete, ...valeurs) => sql['exec'](requete, ...valeurs);
+    this.q(`CREATE TABLE IF NOT EXISTS familles (
+      id TEXT PRIMARY KEY, parent TEXT NOT NULL, telephone TEXT NOT NULL, enfants TEXT NOT NULL, nb_enfants INTEGER NOT NULL,
+      photo TEXT NOT NULL, signature TEXT NOT NULL, version_autorisation TEXT NOT NULL, cle_hash TEXT NOT NULL, ts INTEGER NOT NULL)`);
+    this.q('CREATE TABLE IF NOT EXISTS journal (ts INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');
+    this.q('CREATE TABLE IF NOT EXISTS actions (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
+  }
+
+  compteAction(ip) {
+    const now = Date.now();
+    this.q('DELETE FROM actions WHERE ts < ?', now - FENETRE_MS);
+    if (this.q('SELECT COUNT(*) AS n FROM actions WHERE ip = ?', ip).one().n >= LIMITE_ACTIONS) {
+      throw new Refus(429, 'Beaucoup d’inscriptions viennent d’être faites depuis ce réseau (Wi-Fi partagé ?). Passe en 4G ou réessaie dans 10 minutes.');
+    }
+    this.q('INSERT INTO actions (ip, ts) VALUES (?, ?)', ip, now);
+  }
+
+  async inscrire(corps, ip, admin) {
+    try {
+      const cle = hex(crypto.getRandomValues(new Uint8Array(16)));
+      const cleHash = await sha256(cle);
+      const parent = normalise(String(corps.parent || ''));
+      const telephone = normalise(String(corps.telephone || ''));
+      const signature = normalise(String(corps.signature || ''));
+      if (!NOM_RE.test(parent)) throw new Refus(400, 'Indique ton prénom et ton nom (lettres seulement).');
+      const chiffres = telephone.replace(/\D/g, '');
+      if (!/^\+?[0-9 .()-]{8,22}$/.test(telephone) || chiffres.length < 9 || chiffres.length > 15) throw new Refus(400, 'Numéro de téléphone invalide.');
+      if (!Array.isArray(corps.enfants) || !corps.enfants.length) throw new Refus(400, 'Ajoute au moins un enfant.');
+      if (corps.enfants.length > MAX_ENFANTS) throw new Refus(400, `Au maximum ${MAX_ENFANTS} enfants par inscription.`);
+      const enfants = corps.enfants.map(e => ({ prenom: normalise(String((e && e.prenom) || '')), age: Number(e && e.age) }));
+      for (const e of enfants) {
+        if (!PRENOM_ENFANT_RE.test(e.prenom)) throw new Refus(400, 'Indique le prénom de chaque enfant (lettres seulement).');
+        if (!Number.isInteger(e.age) || e.age < 1 || e.age > 17) throw new Refus(400, `Indique l’âge de ${e.prenom || 'chaque enfant'} (entre 1 et 17 ans).`);
+      }
+      if (corps.photo !== 'oui' && corps.photo !== 'non') throw new Refus(400, 'Réponds à la question sur les photos (oui ou non).');
+      if (corps.autorite !== true) throw new Refus(400, 'Coche la case confirmant que tu exerces l’autorité parentale.');
+      if (signature.length < 3 || signature.length > 60) throw new Refus(400, 'Signe en écrivant ton prénom et ton nom.');
+      if (corps.version !== VERSION_AUTORISATION) throw new Refus(409, 'La page a été mise à jour. Recharge-la puis recommence.');
+      if (!admin) this.compteAction(ip);
+      const id = crypto.randomUUID();
+      const ts = Date.now();
+      this.q(`INSERT INTO familles (id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, cle_hash, ts)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, parent, telephone, JSON.stringify(enfants), enfants.length, corps.photo, signature, VERSION_AUTORISATION, cleHash, ts);
+      this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', ts, 'inscription', `${parent} | ${enfants.length} enfant(s) | photos : ${corps.photo}`);
+      return { id, cle, ts, parent, enfants, photo: corps.photo };
+    } catch (e) {
+      return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
+    }
+  }
+
+  async annuler({ id, cle }, ip, admin) {
+    try {
+      const r = this.q('SELECT parent, cle_hash FROM familles WHERE id = ?', String(id || '')).toArray()[0];
+      if (!r) throw new Refus(404, 'Cette inscription a déjà été annulée.');
+      if (!admin && !egalTempsConstant(await sha256(String(cle || '')), r.cle_hash)) {
+        throw new Refus(403, "Tu ne peux annuler que ta propre inscription, depuis l'appareil qui a servi à la faire. Sinon, écris à contact@choisislavie.org.");
+      }
+      if (!admin) this.compteAction(ip);
+      this.q('DELETE FROM familles WHERE id = ?', String(id));
+      this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), admin ? 'annulation (organisation)' : 'annulation', r.parent);
+      return { ok: true };
+    } catch (e) {
+      return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
+    }
+  }
+
+  liste() {
+    const familles = this.q('SELECT id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, ts FROM familles ORDER BY ts').toArray()
+      .map(f => ({ ...f, enfants: JSON.parse(f.enfants) }));
+    const journal = this.q('SELECT ts, action, detail FROM journal ORDER BY ts DESC LIMIT 300').toArray();
+    return { familles, journal, maj: Date.now() };
+  }
+
+  // apres l'evenement : on efface les telephones, on garde les autorisations photo
+  effacerTelephones() {
+    this.q("UPDATE familles SET telephone = ''");
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'téléphones effacés (organisation)', '');
+    return this.liste();
+  }
+}
+
 function cors(request, env) {
   const origin = request.headers.get('Origin') || '';
   const autorises = (env.ORIGINES || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -171,6 +264,27 @@ export default {
         if (corps.site) return repondre({ ok: true });   // champ piege : rempli seulement par les robots
         if (url.pathname === '/api/inscription') return resultat(await stub.inscrire(corps, ip, admin), 201);
         return resultat(await stub.retirer(corps, ip, admin));
+      }
+      if (url.pathname.startsWith('/api/familles/')) {
+        const familles = env.FAMILLES.get(env.FAMILLES.idFromName(instance));
+        const action = url.pathname.slice('/api/familles/'.length);
+        if (request.method === 'GET' && action === 'liste') {
+          if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
+          return repondre(await familles.liste());
+        }
+        if (request.method === 'POST' && ['inscription', 'annulation', 'effacer-telephones'].includes(action)) {
+          const brut = await request.text();
+          if (brut.length > 4000) throw new Refus(413, 'Requête trop longue.');
+          let corps;
+          try { corps = JSON.parse(brut); } catch { throw new Refus(400, 'Requête illisible.'); }
+          if (!corps || typeof corps !== 'object') throw new Refus(400, 'Requête illisible.');
+          if (corps.site) return repondre({ ok: true });   // champ piege
+          if (action === 'inscription') return resultat(await familles.inscrire(corps, ip, admin), 201);
+          if (action === 'annulation') return resultat(await familles.annuler(corps, ip, admin));
+          if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
+          return repondre(await familles.effacerTelephones());
+        }
+        throw new Refus(404, 'Adresse inconnue.');
       }
       if (url.pathname === '/') return repondre({ service: 'Bénévoles Life Party 2026', ok: true });
       throw new Refus(404, 'Adresse inconnue.');

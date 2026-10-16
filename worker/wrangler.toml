@@ -5,14 +5,22 @@ workers_dev = true
 
 # https://lifeparty-benevoles.natquinson.workers.dev/api/planning
 [vars]
-ORIGINES = "https://natquinson-cmd.github.io"
+ORIGINES = "https://natquinson-cmd.github.io,https://choisislavie.org,https://www.choisislavie.org"
 
 [[durable_objects.bindings]]
 name = "PLANNING"
 class_name = "Planning"
 
+[[durable_objects.bindings]]
+name = "FAMILLES"
+class_name = "Familles"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Planning"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Familles"]
 
 # Secrets (wrangler secret put) : CODE_ORGANISATION (mode organisation de la page), SEL_IP (sel du hachage des IP)
