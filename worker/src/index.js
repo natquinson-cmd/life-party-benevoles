@@ -136,6 +136,15 @@ const PRENOM_ENFANT_RE = /^\p{L}[\p{L}\p{M} .'’-]{0,29}$/u;
 const MAX_ENFANTS = 8;
 const ENVOIS_PAR_ADRESSE = 3;   // e-mails de confirmation par adresse sur 24 h
 const ENVOIS_PAR_JOUR = 200;    // plafond global sur 24 h (quota Brevo, abus)
+const ENVOIS_PAR_IP = 10;       // par connexion sur 24 h, pour qu'une seule source n'epuise pas le plafond global
+// adresse canonique : sans +etiquette, et pour Gmail sans les points (les variantes arrivent dans la meme boite)
+function adresseCanonique(email) {
+  let [local, domaine = ''] = String(email).trim().toLowerCase().split('@');
+  local = local.split('+')[0];
+  if (domaine === 'googlemail.com') domaine = 'gmail.com';
+  if (domaine === 'gmail.com') local = local.replace(/\./g, '');
+  return `${local}@${domaine}`;
+}
 const ALPHABET_BILLET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const nouveauBillet = () => [...crypto.getRandomValues(new Uint8Array(10))].map(b => ALPHABET_BILLET[b % 32]).join('');
 
@@ -155,6 +164,7 @@ export class Familles extends DurableObject {
     }
     this.q('CREATE UNIQUE INDEX IF NOT EXISTS familles_billet ON familles (billet)');
     this.q('CREATE TABLE IF NOT EXISTS envois (adresse TEXT NOT NULL, ts INTEGER NOT NULL)');
+    try { this.q("ALTER TABLE envois ADD COLUMN ip TEXT NOT NULL DEFAULT ''"); } catch { /* colonne deja presente */ }
   }
 
   compteAction(ip) {
@@ -249,14 +259,26 @@ export class Familles extends DurableObject {
   }
 
   // une adresse saisie par un tiers ne doit pas pouvoir etre inondee : le formulaire est public et l'adresse non verifiee
-  async autoriserEnvoi(email) {
-    const adresse = await sha256(String(email).toLowerCase());
+  // l'organisation (renvoi depuis la liste) n'est pas soumise aux plafonds
+  async autoriserEnvoi(email, ip, admin) {
+    const adresse = await sha256(adresseCanonique(email));
     const now = Date.now();
     this.q('DELETE FROM envois WHERE ts < ?', now - 24 * 3600 * 1000);
-    if (this.q('SELECT COUNT(*) AS n FROM envois').one().n >= ENVOIS_PAR_JOUR) return { ok: false, raison: 'plafond journalier des e-mails atteint' };
-    if (this.q('SELECT COUNT(*) AS n FROM envois WHERE adresse = ?', adresse).one().n >= ENVOIS_PAR_ADRESSE) return { ok: false, raison: 'trop d’e-mails vers cette adresse aujourd’hui' };
-    this.q('INSERT INTO envois (adresse, ts) VALUES (?, ?)', adresse, now);
+    if (!admin) {
+      if (this.q('SELECT COUNT(*) AS n FROM envois').one().n >= ENVOIS_PAR_JOUR) return { ok: false, raison: 'plafond journalier des e-mails atteint (renvoyer depuis la liste)' };
+      if (this.q('SELECT COUNT(*) AS n FROM envois WHERE ip = ?', ip || '').one().n >= ENVOIS_PAR_IP) return { ok: false, raison: 'trop d’e-mails depuis cette connexion aujourd’hui' };
+      if (this.q('SELECT COUNT(*) AS n FROM envois WHERE adresse = ?', adresse).one().n >= ENVOIS_PAR_ADRESSE) return { ok: false, raison: 'trop d’e-mails vers cette adresse aujourd’hui' };
+    }
+    this.q('INSERT INTO envois (adresse, ts, ip) VALUES (?, ?, ?)', adresse, now, admin ? 'organisation' : (ip || ''));
     return { ok: true };
+  }
+
+  // donnees necessaires pour renvoyer le billet par e-mail
+  pourEnvoi(id) {
+    const f = this.q('SELECT id, parent, email, enfants, photo, billet FROM familles WHERE id = ?', String(id || '')).toArray()[0];
+    if (!f) return { erreur: 'Inscription introuvable.', status: 404 };
+    if (!f.email) return { erreur: 'Pas d’e-mail pour cette inscription (coordonnées effacées ?).', status: 400 };
+    return { ...f, enfants: JSON.parse(f.enfants) };
   }
 
   noterEnvoi(id, ok, raison) {
@@ -377,7 +399,7 @@ export default {
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
           return repondre(await familles.liste());
         }
-        if (request.method === 'POST' && ['inscription', 'annulation', 'effacer-telephones', 'arrivee'].includes(action)) {
+        if (request.method === 'POST' && ['inscription', 'annulation', 'effacer-telephones', 'arrivee', 'renvoyer'].includes(action)) {
           const brut = await request.text();
           if (brut.length > 4000) throw new Refus(413, 'Requête trop longue.');
           let corps;
@@ -387,7 +409,7 @@ export default {
           if (action === 'inscription') {
             const r = await familles.inscrire(corps, ip, admin);
             if (r && r.erreur) return resultat(r);
-            const permis = await familles.autoriserEnvoi(r.email);
+            const permis = await familles.autoriserEnvoi(r.email, ip, admin);
             const envoi = permis.ok ? await envoyerBillet(env, r, instance) : permis;
             await familles.noterEnvoi(r.id, envoi.ok, envoi.raison);
             return repondre({ ...r, email_envoye: envoi.ok }, 201);
@@ -395,6 +417,14 @@ export default {
           if (action === 'annulation') return resultat(await familles.annuler(corps, ip, admin));
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
           if (action === 'arrivee') return resultat(await familles.arrivee(corps));
+          if (action === 'renvoyer') {
+            const d = await familles.pourEnvoi(corps.id);
+            if (d.erreur) return resultat(d);
+            await familles.autoriserEnvoi(d.email, ip, true);
+            const envoi = await envoyerBillet(env, d, instance);
+            await familles.noterEnvoi(d.id, envoi.ok, envoi.raison ? `renvoi : ${envoi.raison}` : 'renvoi');
+            return envoi.ok ? repondre({ ok: true }) : repondre({ erreur: 'Envoi impossible : ' + envoi.raison }, 502);
+          }
           return repondre(await familles.effacerTelephones());
         }
         throw new Refus(404, 'Adresse inconnue.');
