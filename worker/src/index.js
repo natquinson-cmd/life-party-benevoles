@@ -133,6 +133,8 @@ const VERSION_AUTORISATION = 'lets-play-2026-v1';   // texte d'autorisation affi
 const NOM_RE = /^\p{L}[\p{L}\p{M} .'’-]{1,59}$/u;
 const PRENOM_ENFANT_RE = /^\p{L}[\p{L}\p{M} .'’-]{0,29}$/u;
 const MAX_ENFANTS = 8;
+const ALPHABET_BILLET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const nouveauBillet = () => [...crypto.getRandomValues(new Uint8Array(10))].map(b => ALPHABET_BILLET[b % 32]).join('');
 
 export class Familles extends DurableObject {
   constructor(ctx, env) {
@@ -144,6 +146,11 @@ export class Familles extends DurableObject {
       photo TEXT NOT NULL, signature TEXT NOT NULL, version_autorisation TEXT NOT NULL, cle_hash TEXT NOT NULL, ts INTEGER NOT NULL)`);
     this.q('CREATE TABLE IF NOT EXISTS journal (ts INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');
     this.q('CREATE TABLE IF NOT EXISTS actions (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
+    // billet d'entree (QR code du parent) et heure d'arrivee le jour J, ajoutes apres la creation de la table
+    for (const col of ['billet TEXT', 'arrivee INTEGER']) {
+      try { this.q(`ALTER TABLE familles ADD COLUMN ${col}`); } catch { /* colonne deja presente */ }
+    }
+    this.q('CREATE UNIQUE INDEX IF NOT EXISTS familles_billet ON familles (billet)');
   }
 
   compteAction(ip) {
@@ -179,10 +186,11 @@ export class Familles extends DurableObject {
       if (!admin) this.compteAction(ip);
       const id = crypto.randomUUID();
       const ts = Date.now();
-      this.q(`INSERT INTO familles (id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, cle_hash, ts)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, parent, telephone, JSON.stringify(enfants), enfants.length, corps.photo, signature, VERSION_AUTORISATION, cleHash, ts);
+      const billet = nouveauBillet();
+      this.q(`INSERT INTO familles (id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, cle_hash, ts, billet)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, parent, telephone, JSON.stringify(enfants), enfants.length, corps.photo, signature, VERSION_AUTORISATION, cleHash, ts, billet);
       this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', ts, 'inscription', `${parent} | ${enfants.length} enfant(s) | photos : ${corps.photo}`);
-      return { id, cle, ts, parent, enfants, photo: corps.photo };
+      return { id, cle, billet, ts, parent, enfants, photo: corps.photo };
     } catch (e) {
       return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
     }
@@ -204,8 +212,31 @@ export class Familles extends DurableObject {
     }
   }
 
+  // accueil le jour J : par billet scanne (QR) ou par id (bouton de la liste) ; annuler = enlever la coche
+  arrivee({ billet, id, annuler }) {
+    try {
+      const f = billet
+        ? this.q('SELECT id, parent, enfants, nb_enfants, photo, arrivee FROM familles WHERE billet = ?', String(billet).toUpperCase()).toArray()[0]
+        : this.q('SELECT id, parent, enfants, nb_enfants, photo, arrivee FROM familles WHERE id = ?', String(id || '')).toArray()[0];
+      if (!f) throw new Refus(404, 'Billet inconnu : cette inscription n’existe pas ou a été annulée.');
+      const famille = { id: f.id, parent: f.parent, enfants: JSON.parse(f.enfants), nb_enfants: f.nb_enfants, photo: f.photo };
+      if (annuler) {
+        this.q('UPDATE familles SET arrivee = NULL WHERE id = ?', f.id);
+        this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'arrivée annulée', f.parent);
+        return { famille, arrivee: null, deja: false };
+      }
+      if (f.arrivee) return { famille, arrivee: f.arrivee, deja: true };
+      const ts = Date.now();
+      this.q('UPDATE familles SET arrivee = ? WHERE id = ?', ts, f.id);
+      this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', ts, 'arrivée', `${f.parent} | ${f.nb_enfants} enfant(s)`);
+      return { famille, arrivee: ts, deja: false };
+    } catch (e) {
+      return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
+    }
+  }
+
   liste() {
-    const familles = this.q('SELECT id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, ts FROM familles ORDER BY ts').toArray()
+    const familles = this.q('SELECT id, parent, telephone, enfants, nb_enfants, photo, signature, version_autorisation, ts, arrivee FROM familles ORDER BY ts').toArray()
       .map(f => ({ ...f, enfants: JSON.parse(f.enfants) }));
     const journal = this.q('SELECT ts, action, detail FROM journal ORDER BY ts DESC LIMIT 300').toArray();
     return { familles, journal, maj: Date.now() };
@@ -272,7 +303,7 @@ export default {
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
           return repondre(await familles.liste());
         }
-        if (request.method === 'POST' && ['inscription', 'annulation', 'effacer-telephones'].includes(action)) {
+        if (request.method === 'POST' && ['inscription', 'annulation', 'effacer-telephones', 'arrivee'].includes(action)) {
           const brut = await request.text();
           if (brut.length > 4000) throw new Refus(413, 'Requête trop longue.');
           let corps;
@@ -282,6 +313,7 @@ export default {
           if (action === 'inscription') return resultat(await familles.inscrire(corps, ip, admin), 201);
           if (action === 'annulation') return resultat(await familles.annuler(corps, ip, admin));
           if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
+          if (action === 'arrivee') return resultat(await familles.arrivee(corps));
           return repondre(await familles.effacerTelephones());
         }
         throw new Refus(404, 'Adresse inconnue.');
