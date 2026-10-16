@@ -185,7 +185,8 @@ export class Familles extends DurableObject {
       const signature = normalise(String(corps.signature || ''));
       const email = String(corps.email || '').trim().toLowerCase();
       if (!NOM_RE.test(parent)) throw new Refus(400, 'Indique ton prénom et ton nom (lettres seulement).');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 120) throw new Refus(400, 'Adresse e-mail invalide.');
+      // adresse simple uniquement : partie locale classique, domaine en etiquettes [a-z0-9-] sans point final
+      if (!/^[a-z0-9._%+-]{1,64}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.length > 120) throw new Refus(400, 'Adresse e-mail invalide.');
       const chiffres = telephone.replace(/\D/g, '');
       if (!/^\+?[0-9 .()-]{8,22}$/.test(telephone) || chiffres.length < 9 || chiffres.length > 15) throw new Refus(400, 'Numéro de téléphone invalide.');
       if (!Array.isArray(corps.enfants) || !corps.enfants.length) throw new Refus(400, 'Ajoute au moins un enfant.');
