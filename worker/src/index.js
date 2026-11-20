@@ -304,7 +304,9 @@ export const SOIREE = {
   id: 'au-pied-du-pere-2026',
   titre: 'Au pied du Père',
   quand: 'Samedi 12 décembre 2026 à 19 h 30',
-  lieu: 'Église de Barral, Seynod (Annecy)',
+  lieu: 'Église de Barral',
+  adresse: '47 Avenue de Barral, 74600 Seynod (Annecy)',
+  plan: 'https://www.google.com/maps/search/?api=1&query=47+Avenue+de+Barral+74600+Seynod',
   capacite: 100,                          // jauge de depart, modifiable depuis la page organisation
   fin: Date.UTC(2026, 11, 12, 18, 30),    // 19 h 30 a Annecy : plus d'inscription en ligne ensuite
   page: 'https://choisislavie.org/au-pied-du-pere/',
@@ -377,8 +379,9 @@ export class Soiree extends DurableObject {
       }
       const { restantes } = this.etat();
       if (adultes + enfants > restantes && !(admin && corps.forcer === true)) {
+        // le nombre de places restantes n'est jamais revele au public
         throw new Refus(409, restantes <= 0 ? 'La soirée est complète : il n’y a plus de place.'
-          : `Il ne reste que ${pluriel(restantes, 'place')}. Réduisez le nombre de personnes pour vous inscrire.`);
+          : `Il ne reste plus assez de places pour ${pluriel(adultes + enfants, 'personne')}. Réduisez le nombre de personnes, ou écrivez à contact@choisislavie.org.`);
       }
       if (!admin) this.compteAction(ip);
       const id = crypto.randomUUID();
@@ -490,7 +493,8 @@ function courrielSoiree(d, instance, cle) {
 <p style="margin:0 0 10px;font-size:12px;letter-spacing:3px;font-weight:bold;color:#F6EFE4;text-transform:uppercase;">Soirée de réveil &amp; d'adoration</p>
 <h1 style="margin:0;font-family:'Arial Black',Arial,Helvetica,sans-serif;font-size:36px;line-height:1.05;color:#F6EFE4;text-transform:uppercase;">Au pied du Père</h1>
 <p style="margin:14px 0 0;font-size:16px;font-weight:bold;color:#F2B33D;">Samedi 12 décembre 2026, 19 h 30</p>
-<p style="margin:4px 0 0;font-size:15px;color:#F6EFE4;">${echapper(SOIREE.lieu)}</p></td></tr>
+<p style="margin:4px 0 0;font-size:15px;color:#F6EFE4;">${echapper(SOIREE.lieu)}<br>${echapper(SOIREE.adresse)}</p>
+<p style="margin:8px 0 0;font-size:14px;"><a href="${SOIREE.plan}" style="color:#F2B33D;font-weight:bold;">Voir le plan</a></p></td></tr>
 <tr><td style="padding:26px 28px 6px;font-size:15px;line-height:1.6;">
 <p style="margin:0 0 10px;">Bonjour ${echapper(d.prenom)},</p>
 <p style="margin:0 0 14px;">Votre inscription est confirmée. Nous avons réservé <b>${pluriel(places, 'place')}</b> pour vous : ${lignes}.</p>
@@ -527,7 +531,13 @@ async function routeSoiree(request, env, url, instance, ip, repondre, resultat) 
   if (code && !admin) throw new Refus(403, 'Code organisation incorrect.');
   const soiree = env.SOIREE.get(env.SOIREE.idFromName(`${SOIREE.id}:${instance}`));
   const action = url.pathname.slice('/api/soiree/'.length);
-  if (request.method === 'GET' && action === 'etat') return repondre(await soiree.etat());
+  // public : seulement « complet » et « ferme », jamais les nombres (places prises, jauge, restantes)
+  const masquer = r => {
+    if (admin || !r || r.erreur) return r;
+    const { capacite, pris, restantes, ...reste } = r;
+    return reste;
+  };
+  if (request.method === 'GET' && action === 'etat') return repondre(masquer(await soiree.etat()));
   if (request.method === 'GET' && action === 'liste') {
     if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
     return repondre(await soiree.liste());
@@ -552,14 +562,14 @@ async function routeSoiree(request, env, url, instance, ip, repondre, resultat) 
       envoi = permis.ok ? await envoyerConfirmationSoiree(env, r, instance) : permis;
       await soiree.noterEnvoi(r.id, envoi.ok, envoi.raison);
     }
-    return repondre({ ...r, cle, email_envoye: envoi.ok }, 201);
+    return repondre({ ...masquer(r), cle, email_envoye: envoi.ok }, 201);
   }
   if (action === 'consulter' || action === 'annulation') {
     const id = String(corps.id || '');
     if (!admin && !egalTempsConstant(String(corps.cle || ''), await cleAnnulation(env, instance, id))) {
       throw new Refus(403, 'Lien d’annulation invalide. Utilisez le lien reçu par e-mail ou écrivez à contact@choisislavie.org.');
     }
-    return resultat(action === 'consulter' ? await soiree.resume(id) : await soiree.annuler(id, ip, admin));
+    return resultat(action === 'consulter' ? await soiree.resume(id) : masquer(await soiree.annuler(id, ip, admin)));
   }
   if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
   if (action === 'arrivee') return resultat(await soiree.arrivee(corps));

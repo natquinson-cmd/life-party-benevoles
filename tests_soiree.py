@@ -31,7 +31,8 @@ def personne(**k):
 
 # remise a zero de l'instance test
 for i in call('liste', admin=True)[1].get('inscrits', []): call('annulation', {'id': i['id']}, admin=True)
-s, d = call('etat'); verifie('etat public', s == 200 and d['pris'] == 0 and 'inscrits' not in d, d)
+s, d = call('etat'); verifie('etat public sans aucun nombre', s == 200 and set(d) == {'complet', 'ferme'}, d)
+s, d = call('etat', admin=True); verifie('etat organisation avec nombres', s == 200 and d['pris'] == 0 and d['capacite'] == 100, d)
 s, d = call('liste'); verifie('liste refusee sans code', s == 403, s)
 s, d = call('liste', code='mauvais-code'); verifie('liste refusee avec mauvais code', s == 403, s)
 s, d = call('reglages', {'capacite': 6}, admin=True); verifie('jauge a 6', s == 200 and d['capacite'] == 6, d)
@@ -45,15 +46,16 @@ for nom, corps, attendu in [
     ('adultes non entier', personne(adultes=1.5), 400), ('congregation avec lien', personne(congregation='voir https://x.ru'), 400),
     ('congregation trop longue', personne(congregation='x' * 90), 400)]:
     s, d = call('inscription', corps); verifie(f'refus : {nom}', s == attendu, (s, d))
-s, d = call('inscription', {**personne(), 'site': 'robot'}); verifie('champ piege ignore', s == 200 and call('etat')[1]['pris'] == 0, (s, d))
+s, d = call('inscription', {**personne(), 'site': 'robot'}); verifie('champ piege ignore', s == 200 and call('etat', admin=True)[1]['pris'] == 0, (s, d))
 
 # inscription publique + e-mail
 s, d = call('inscription', personne(prenom='Élodie', nom="D'Arc-Martin"))
-verifie('inscription publique 2+1', s == 201 and d['pris'] == 3 and d['restantes'] == 3 and len(d.get('cle', '')) == 32, d)
+verifie('inscription publique 2+1, reponse sans nombre de places', s == 201 and not ({'pris', 'restantes', 'capacite'} & set(d)) and len(d.get('cle', '')) == 32, d)
+verifie('3 places prises (vu par l organisation)', call('etat', admin=True)[1]['pris'] == 3)
 print('     e-mail envoye :', d.get('email_envoye'))
 ins1 = d
 s, d = call('inscription', personne(email='TEST.soiree+autre@example.com', prenom='Paul')); verifie('doublon e-mail refuse', s == 409 and 'existe déjà' in d['erreur'], d)
-s, d = call('inscription', personne(email='b@example.com', adultes=3, enfants=1)); verifie('depassement refuse (4 > 3)', s == 409 and '3 places' in d['erreur'], d)
+s, d = call('inscription', personne(email='b@example.com', adultes=3, enfants=1)); verifie('depassement refuse (4 > 3), sans reveler le reste', s == 409 and 'plus assez de places pour 4 personnes' in d['erreur'] and '3' not in d['erreur'], d)
 s, d = call('inscription', personne(email='c@example.com', adultes=2, enfants=1, congregation='')); verifie('remplit la jauge (3)', s == 201 and d['complet'], d)
 s, d = call('inscription', personne(email='d@example.com', adultes=1, enfants=0)); verifie('complet refuse', s == 409 and 'complète' in d['erreur'], d)
 s, d = call('inscription', personne(email='', adultes=1, enfants=0), admin=True); verifie('organisation sans forcer refusee', s == 409, d)
@@ -64,7 +66,7 @@ verifie('organisation force, sans e-mail', s == 201 and d['pris'] == 7 and d['re
 s, d = call('consulter', {'id': ins1['id'], 'cle': '0' * 32}); verifie('consulter mauvaise cle', s == 403, d)
 s, d = call('consulter', {'id': ins1['id'], 'cle': ins1['cle']}); verifie('consulter bonne cle', s == 200 and d['prenom'] == 'Élodie' and 'email' not in d, d)
 s, d = call('annulation', {'id': ins1['id'], 'cle': ins1['cle'][:-1] + 'x'}); verifie('annulation mauvaise cle', s == 403, d)
-s, d = call('annulation', {'id': ins1['id'], 'cle': ins1['cle']}); verifie('annulation par lien', s == 200 and d['pris'] == 4, d)
+s, d = call('annulation', {'id': ins1['id'], 'cle': ins1['cle']}); verifie('annulation par lien, reponse sans nombre', s == 200 and 'pris' not in d and call('etat', admin=True)[1]['pris'] == 4, d)
 s, d = call('annulation', {'id': ins1['id'], 'cle': ins1['cle']}); verifie('double annulation = 404', s == 404, d)
 
 # organisation
@@ -79,7 +81,7 @@ s, d = call('reglages', {'capacite': 0}, admin=True); verifie('jauge 0 refusee',
 # remise a zero
 for i in call('liste', admin=True)[1]['inscrits']: call('annulation', {'id': i['id']}, admin=True)
 call('reglages', {'capacite': 100}, admin=True)
-s, d = call('etat'); verifie('test remis a zero', d['pris'] == 0 and d['capacite'] == 100, d)
-s, d = call('etat', inst='live'); print('     live :', d)
+s, d = call('etat', admin=True); verifie('test remis a zero', d['pris'] == 0 and d['capacite'] == 100, d)
+s, d = call('etat', admin=True, inst='live'); print('     live (lecture seule) :', d)
 print('\n' + ('TOUT EST OK' if not echecs else f'{len(echecs)} ECHEC(S) : {echecs}'))
 sys.exit(1 if echecs else 0)
