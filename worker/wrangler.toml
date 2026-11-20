@@ -15,6 +15,10 @@ class_name = "Planning"
 name = "FAMILLES"
 class_name = "Familles"
 
+[[durable_objects.bindings]]
+name = "SOIREE"
+class_name = "Soiree"
+
 [[services]]
 binding = "COURRIEL"
 service = "contact-form-choisislavie"
@@ -27,5 +31,10 @@ new_sqlite_classes = ["Planning"]
 tag = "v2"
 new_sqlite_classes = ["Familles"]
 
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["Soiree"]
+
 # Secrets (wrangler secret put) : CODE_ORGANISATION (mode organisation de la page), SEL_IP (sel du hachage des IP),
-# SECRET_INTERNE (partage avec contact-form-choisislavie, qui envoie les e-mails via Brevo)
+# SECRET_INTERNE (partage avec contact-form-choisislavie, qui envoie les e-mails via Brevo),
+# CODE_SOIREE (page organisation de la soiree « Au pied du Pere », distinct de CODE_ORGANISATION)

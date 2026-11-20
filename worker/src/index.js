@@ -295,6 +295,286 @@ export class Familles extends DurableObject {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Soiree « Au pied du Pere » (12 decembre 2026) : inscriptions avec jauge, adultes et enfants comptes ensemble.
+// Liste PRIVEE, lecture reservee a l'organisation (code CODE_SOIREE, distinct du code de la Life Party).
+// Complet = inscriptions refusees (pas de liste d'attente). Confirmation par e-mail, sans billet.
+// ---------------------------------------------------------------------------------------------
+export const SOIREE = {
+  id: 'au-pied-du-pere-2026',
+  titre: 'Au pied du Père',
+  quand: 'Samedi 12 décembre 2026 à 19 h 30',
+  lieu: 'Église de Barral, Seynod (Annecy)',
+  capacite: 100,                          // jauge de depart, modifiable depuis la page organisation
+  fin: Date.UTC(2026, 11, 12, 18, 30),    // 19 h 30 a Annecy : plus d'inscription en ligne ensuite
+  page: 'https://choisislavie.org/au-pied-du-pere/',
+};
+const MAX_ADULTES = 10;
+const MAX_ENFANTS_SOIREE = 10;
+const NOM_PERSONNE_RE = /^\p{L}[\p{L}\p{M} .'’-]{0,39}$/u;
+const VILLE_RE = /^\p{L}[\p{L}\p{M}\d .'’()-]{1,59}$/u;
+const EMAIL_RE = /^[a-z0-9._%+-]{1,64}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
+const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+
+export class Soiree extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    const sql = ctx.storage.sql;
+    this.q = (requete, ...valeurs) => sql['exec'](requete, ...valeurs);
+    this.q(`CREATE TABLE IF NOT EXISTS inscrits (
+      id TEXT PRIMARY KEY, prenom TEXT NOT NULL, nom TEXT NOT NULL, email TEXT NOT NULL, email_canon TEXT NOT NULL,
+      adultes INTEGER NOT NULL, enfants INTEGER NOT NULL, ville TEXT NOT NULL, congregation TEXT NOT NULL DEFAULT '',
+      ts INTEGER NOT NULL, arrivee INTEGER, par_orga INTEGER NOT NULL DEFAULT 0)`);
+    this.q('CREATE TABLE IF NOT EXISTS journal (ts INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)');
+    this.q('CREATE TABLE IF NOT EXISTS actions (ip TEXT NOT NULL, ts INTEGER NOT NULL)');
+    this.q("CREATE TABLE IF NOT EXISTS envois (adresse TEXT NOT NULL, ts INTEGER NOT NULL, ip TEXT NOT NULL DEFAULT '')");
+    this.q('CREATE TABLE IF NOT EXISTS reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)');
+  }
+
+  capacite() {
+    const r = this.q("SELECT valeur FROM reglages WHERE cle = 'capacite'").toArray()[0];
+    return r ? Number(r.valeur) : SOIREE.capacite;
+  }
+
+  // etat public : uniquement des nombres (aucune donnee personnelle)
+  etat() {
+    const capacite = this.capacite();
+    const pris = this.q('SELECT COALESCE(SUM(adultes + enfants), 0) AS n FROM inscrits').one().n;
+    return { capacite, pris, restantes: Math.max(0, capacite - pris), complet: pris >= capacite, ferme: Date.now() >= SOIREE.fin };
+  }
+
+  compteAction(ip) {
+    const now = Date.now();
+    this.q('DELETE FROM actions WHERE ts < ?', now - FENETRE_MS);
+    if (this.q('SELECT COUNT(*) AS n FROM actions WHERE ip = ?', ip).one().n >= LIMITE_ACTIONS) {
+      throw new Refus(429, 'Beaucoup d’inscriptions viennent d’être faites depuis ce réseau (Wi-Fi partagé ?). Passez en 4G ou réessayez dans 10 minutes.');
+    }
+    this.q('INSERT INTO actions (ip, ts) VALUES (?, ?)', ip, now);
+  }
+
+  // aucune attente dans cette methode : controle de la jauge et insertion ne peuvent pas se croiser
+  inscrire(corps, ip, admin) {
+    try {
+      if (!admin && Date.now() >= SOIREE.fin) throw new Refus(410, 'Les inscriptions en ligne sont closes.');
+      const prenom = normalise(String(corps.prenom || ''));
+      const nom = normalise(String(corps.nom || ''));
+      const email = String(corps.email || '').trim().toLowerCase();
+      const ville = normalise(String(corps.ville || ''));
+      const congregation = Array.from(normalise(String(corps.congregation || ''))).slice(0, 81).join('');
+      const adultes = Number(corps.adultes);
+      const enfants = Number(corps.enfants);
+      if (!NOM_PERSONNE_RE.test(prenom)) throw new Refus(400, 'Indiquez votre prénom (lettres seulement).');
+      if (!NOM_PERSONNE_RE.test(nom)) throw new Refus(400, 'Indiquez votre nom (lettres seulement).');
+      // l'organisation peut ajouter une personne sans e-mail (inscription par telephone, par exemple)
+      if ((email || !admin) && (!EMAIL_RE.test(email) || email.length > 120)) throw new Refus(400, 'Adresse e-mail invalide.');
+      if (!VILLE_RE.test(ville)) throw new Refus(400, 'Indiquez votre ville d’habitation.');
+      if (congregation.length > 80 || /https?:|www\.|@|[<>]/i.test(congregation)) throw new Refus(400, 'Congrégation : 80 caractères au plus, sans lien ni adresse e-mail.');
+      if (!Number.isInteger(adultes) || adultes < 1 || adultes > MAX_ADULTES) throw new Refus(400, `Nombre d’adultes : entre 1 et ${MAX_ADULTES}. Pour un groupe plus grand, écrivez à contact@choisislavie.org.`);
+      if (!Number.isInteger(enfants) || enfants < 0 || enfants > MAX_ENFANTS_SOIREE) throw new Refus(400, `Nombre d’enfants : entre 0 et ${MAX_ENFANTS_SOIREE}. Pour un groupe plus grand, écrivez à contact@choisislavie.org.`);
+      const canon = email ? adresseCanonique(email) : '';
+      if (canon && this.q('SELECT COUNT(*) AS n FROM inscrits WHERE email_canon = ?', canon).one().n) {
+        throw new Refus(409, 'Une inscription existe déjà avec cette adresse e-mail. Pour la modifier, annulez-la avec le lien reçu par e-mail, puis inscrivez-vous de nouveau.');
+      }
+      const { restantes } = this.etat();
+      if (adultes + enfants > restantes && !(admin && corps.forcer === true)) {
+        throw new Refus(409, restantes <= 0 ? 'La soirée est complète : il n’y a plus de place.'
+          : `Il ne reste que ${pluriel(restantes, 'place')}. Réduisez le nombre de personnes pour vous inscrire.`);
+      }
+      if (!admin) this.compteAction(ip);
+      const id = crypto.randomUUID();
+      const ts = Date.now();
+      this.q(`INSERT INTO inscrits (id, prenom, nom, email, email_canon, adultes, enfants, ville, congregation, ts, par_orga)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, prenom, nom, email, canon, adultes, enfants, ville, congregation, ts, admin ? 1 : 0);
+      this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', ts, admin ? 'ajout (organisation)' : 'inscription',
+        `${prenom} ${nom} | ${pluriel(adultes, 'adulte')}, ${pluriel(enfants, 'enfant')} | ${ville}${congregation ? ' | ' + congregation : ''}`);
+      return { id, ts, prenom, nom, email, adultes, enfants, ville, congregation, ...this.etat() };
+    } catch (e) {
+      return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
+    }
+  }
+
+  // la cle d'annulation est verifiee par le worker avant l'appel
+  resume(id) {
+    const r = this.q('SELECT id, prenom, nom, adultes, enfants FROM inscrits WHERE id = ?', String(id || '')).toArray()[0];
+    return r || { erreur: 'Cette inscription n’existe plus : elle a déjà été annulée.', status: 404 };
+  }
+
+  annuler(id, ip, admin) {
+    try {
+      const r = this.q('SELECT prenom, nom, adultes, enfants FROM inscrits WHERE id = ?', String(id || '')).toArray()[0];
+      if (!r) throw new Refus(404, 'Cette inscription n’existe plus : elle a déjà été annulée.');
+      if (!admin) this.compteAction(ip);
+      this.q('DELETE FROM inscrits WHERE id = ?', String(id));
+      this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), admin ? 'annulation (organisation)' : 'annulation',
+        `${r.prenom} ${r.nom} | ${r.adultes + r.enfants} place(s) libérée(s)`);
+      return { ok: true, ...this.etat() };
+    } catch (e) {
+      return { erreur: e.message, status: e instanceof Refus ? e.status : 500 };
+    }
+  }
+
+  arrivee({ id, annuler }) {
+    const r = this.q('SELECT prenom, nom, adultes, enfants, arrivee FROM inscrits WHERE id = ?', String(id || '')).toArray()[0];
+    if (!r) return { erreur: 'Inscription introuvable (annulée ?).', status: 404 };
+    const ts = annuler ? null : (r.arrivee || Date.now());
+    this.q('UPDATE inscrits SET arrivee = ? WHERE id = ?', ts, String(id));
+    if (!r.arrivee !== !ts) this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), annuler ? 'arrivée annulée' : 'arrivée', `${r.prenom} ${r.nom}`);
+    return { ok: true, arrivee: ts };
+  }
+
+  regler({ capacite }) {
+    const n = Number(capacite);
+    if (!Number.isInteger(n) || n < 1 || n > 2000) return { erreur: 'Jauge : un nombre entier entre 1 et 2000.', status: 400 };
+    const avant = this.capacite();
+    this.q("INSERT INTO reglages (cle, valeur) VALUES ('capacite', ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur", String(n));
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'jauge modifiée (organisation)', `${avant} → ${n} places`);
+    return this.liste();
+  }
+
+  liste() {
+    const inscrits = this.q('SELECT id, prenom, nom, email, adultes, enfants, ville, congregation, ts, arrivee, par_orga FROM inscrits ORDER BY ts').toArray();
+    const journal = this.q('SELECT ts, action, detail FROM journal ORDER BY ts DESC LIMIT 300').toArray();
+    return { inscrits, journal, ...this.etat(), maj: Date.now() };
+  }
+
+  // formulaire public, adresse non verifiee : une adresse saisie par un tiers ne doit pas pouvoir etre inondee
+  async autoriserEnvoi(email, ip, admin) {
+    const adresse = await sha256(adresseCanonique(email));
+    const now = Date.now();
+    this.q('DELETE FROM envois WHERE ts < ?', now - 24 * 3600 * 1000);
+    if (!admin) {
+      if (this.q('SELECT COUNT(*) AS n FROM envois').one().n >= ENVOIS_PAR_JOUR) return { ok: false, raison: 'plafond journalier des e-mails atteint (renvoyer depuis la liste)' };
+      if (this.q('SELECT COUNT(*) AS n FROM envois WHERE ip = ?', ip || '').one().n >= ENVOIS_PAR_IP) return { ok: false, raison: 'trop d’e-mails depuis cette connexion aujourd’hui' };
+      if (this.q('SELECT COUNT(*) AS n FROM envois WHERE adresse = ?', adresse).one().n >= ENVOIS_PAR_ADRESSE) return { ok: false, raison: 'trop d’e-mails vers cette adresse aujourd’hui' };
+    }
+    this.q('INSERT INTO envois (adresse, ts, ip) VALUES (?, ?, ?)', adresse, now, admin ? 'organisation' : (ip || ''));
+    return { ok: true };
+  }
+
+  pourEnvoi(id) {
+    const r = this.q('SELECT id, prenom, nom, email, adultes, enfants, ville, congregation FROM inscrits WHERE id = ?', String(id || '')).toArray()[0];
+    if (!r) return { erreur: 'Inscription introuvable.', status: 404 };
+    if (!r.email) return { erreur: 'Pas d’e-mail pour cette inscription.', status: 400 };
+    return r;
+  }
+
+  noterEnvoi(id, ok, raison) {
+    const r = this.q('SELECT prenom, nom FROM inscrits WHERE id = ?', String(id)).toArray()[0];
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), ok ? 'e-mail de confirmation envoyé' : 'ÉCHEC e-mail de confirmation',
+      `${r ? r.prenom + ' ' + r.nom : id}${raison ? ' | ' + raison : ''}`);
+  }
+
+  // apres la soiree : on efface les e-mails, on garde les noms, villes et congregations (bilan)
+  effacerCoordonnees() {
+    this.q("UPDATE inscrits SET email = '', email_canon = ''");
+    this.q('INSERT INTO journal (ts, action, detail) VALUES (?, ?, ?)', Date.now(), 'e-mails effacés (organisation)', '');
+    return this.liste();
+  }
+}
+
+// cle d'annulation derivee de l'identifiant (HMAC) : rien a stocker, valable depuis l'e-mail comme depuis l'appareil
+async function cleAnnulation(env, instance, id) {
+  if (!env.SEL_IP) throw new Error('configuration incomplète (SEL_IP)');
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.SEL_IP), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hex(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`annulation|${SOIREE.id}|${instance}|${id}`))).slice(0, 32);
+}
+const lienAnnulation = (instance, id, cle) => `${SOIREE.page}${instance === 'test' ? '?test' : ''}#annuler=${id}.${cle}`;
+
+function courrielSoiree(d, instance, cle) {
+  const places = d.adultes + d.enfants;
+  const lignes = [pluriel(d.adultes, 'adulte'), d.enfants ? pluriel(d.enfants, 'enfant') : null].filter(Boolean).join(' et ');
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:0;background:#EEE8DF;font-family:Arial,Helvetica,sans-serif;color:#141A3A;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEE8DF;padding:24px 12px;"><tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
+<tr><td style="background:#1B2350;background-image:linear-gradient(135deg,#C9692A 0%,#7A4A4F 38%,#1B2350 75%);padding:30px 28px 26px;">
+<p style="margin:0 0 10px;font-size:12px;letter-spacing:3px;font-weight:bold;color:#F6EFE4;text-transform:uppercase;">Soirée de réveil &amp; d'adoration</p>
+<h1 style="margin:0;font-family:'Arial Black',Arial,Helvetica,sans-serif;font-size:36px;line-height:1.05;color:#F6EFE4;text-transform:uppercase;">Au pied du Père</h1>
+<p style="margin:14px 0 0;font-size:16px;font-weight:bold;color:#F2B33D;">Samedi 12 décembre 2026, 19 h 30</p>
+<p style="margin:4px 0 0;font-size:15px;color:#F6EFE4;">${echapper(SOIREE.lieu)}</p></td></tr>
+<tr><td style="padding:26px 28px 6px;font-size:15px;line-height:1.6;">
+<p style="margin:0 0 10px;">Bonjour ${echapper(d.prenom)},</p>
+<p style="margin:0 0 14px;">Votre inscription est confirmée. Nous avons réservé <b>${pluriel(places, 'place')}</b> pour vous : ${lignes}.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#F6F1E8;border-radius:12px;"><tr><td style="padding:14px 16px;font-size:14px;line-height:1.7;">
+<b>Invité :</b> Dr Francesco, du Canada<br><b>Entrée :</b> gratuite, une offrande sera proposée<br>
+<b>Inscription au nom de :</b> ${echapper(d.prenom)} ${echapper(d.nom)}, ${echapper(d.ville)}${d.congregation ? `<br><b>Congrégation :</b> ${echapper(d.congregation)}` : ''}
+</td></tr></table></td></tr>
+<tr><td style="padding:18px 28px 4px;font-size:15px;line-height:1.6;">
+<p style="margin:0 0 14px;">Un empêchement ? Les places sont limitées : merci d'annuler votre inscription pour les laisser à d'autres.</p>
+<a href="${lienAnnulation(instance, d.id, cle)}" style="display:inline-block;background:#141A3A;color:#F6EFE4;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:999px;font-size:14px;">Annuler mon inscription</a></td></tr>
+<tr><td style="padding:22px 28px 26px;font-size:14px;line-height:1.6;color:#5B5F75;">
+<p style="margin:0 0 10px;font-style:italic;">« Comme il était encore loin, son père le vit et fut ému de compassion. » Luc 15:20</p>
+<p style="margin:0;">À très bientôt,<br><b style="color:#141A3A;">Cœurs d'Espoir et Choisis la Vie</b>, en collaboration avec HUB mvmnt</p></td></tr>
+</table></td></tr></table></body></html>`;
+  return { to: d.email, toName: `${d.prenom} ${d.nom}`, fromName: 'Choisis la Vie', subject: 'Inscription confirmée : soirée « Au pied du Père » du 12 décembre', html };
+}
+
+async function envoyerConfirmationSoiree(env, d, instance) {
+  if (!env.COURRIEL || !env.SECRET_INTERNE) return { ok: false, raison: 'envoi non configuré' };
+  try {
+    const cle = await cleAnnulation(env, instance, d.id);
+    const r = await env.COURRIEL.fetch('https://interne/interne/envoi', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Secret-Interne': env.SECRET_INTERNE },
+      body: JSON.stringify(courrielSoiree(d, instance, cle)),
+    });
+    if (!r.ok) return { ok: false, raison: `envoi ${r.status} ${(await r.text()).slice(0, 120)}` };
+    return { ok: true };
+  } catch (e) { return { ok: false, raison: e.message }; }
+}
+
+async function routeSoiree(request, env, url, instance, ip, repondre, resultat) {
+  const code = request.headers.get('X-Code-Organisation') || '';
+  const admin = Boolean(env.CODE_SOIREE) && egalTempsConstant(code, env.CODE_SOIREE);
+  if (code && !admin) throw new Refus(403, 'Code organisation incorrect.');
+  const soiree = env.SOIREE.get(env.SOIREE.idFromName(`${SOIREE.id}:${instance}`));
+  const action = url.pathname.slice('/api/soiree/'.length);
+  if (request.method === 'GET' && action === 'etat') return repondre(await soiree.etat());
+  if (request.method === 'GET' && action === 'liste') {
+    if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
+    return repondre(await soiree.liste());
+  }
+  if (request.method !== 'POST' || !['inscription', 'consulter', 'annulation', 'arrivee', 'renvoyer', 'reglages', 'effacer-coordonnees'].includes(action)) {
+    throw new Refus(404, 'Adresse inconnue.');
+  }
+  const brut = await request.text();
+  if (brut.length > 2000) throw new Refus(413, 'Requête trop longue.');
+  let corps;
+  try { corps = JSON.parse(brut); } catch { throw new Refus(400, 'Requête illisible.'); }
+  if (!corps || typeof corps !== 'object') throw new Refus(400, 'Requête illisible.');
+  if (corps.site) return repondre({ ok: true });   // champ piege : rempli seulement par les robots
+
+  if (action === 'inscription') {
+    const r = await soiree.inscrire(corps, ip, admin);
+    if (r && r.erreur) return resultat(r);
+    const cle = await cleAnnulation(env, instance, r.id);
+    let envoi = { ok: false, raison: 'pas d’e-mail' };
+    if (r.email) {
+      const permis = await soiree.autoriserEnvoi(r.email, ip, admin);
+      envoi = permis.ok ? await envoyerConfirmationSoiree(env, r, instance) : permis;
+      await soiree.noterEnvoi(r.id, envoi.ok, envoi.raison);
+    }
+    return repondre({ ...r, cle, email_envoye: envoi.ok }, 201);
+  }
+  if (action === 'consulter' || action === 'annulation') {
+    const id = String(corps.id || '');
+    if (!admin && !egalTempsConstant(String(corps.cle || ''), await cleAnnulation(env, instance, id))) {
+      throw new Refus(403, 'Lien d’annulation invalide. Utilisez le lien reçu par e-mail ou écrivez à contact@choisislavie.org.');
+    }
+    return resultat(action === 'consulter' ? await soiree.resume(id) : await soiree.annuler(id, ip, admin));
+  }
+  if (!admin) throw new Refus(403, 'Réservé à l’organisation.');
+  if (action === 'arrivee') return resultat(await soiree.arrivee(corps));
+  if (action === 'reglages') return resultat(await soiree.regler(corps));
+  if (action === 'renvoyer') {
+    const d = await soiree.pourEnvoi(corps.id);
+    if (d.erreur) return resultat(d);
+    await soiree.autoriserEnvoi(d.email, ip, true);
+    const envoi = await envoyerConfirmationSoiree(env, d, instance);
+    await soiree.noterEnvoi(d.id, envoi.ok, envoi.raison ? `renvoi : ${envoi.raison}` : 'renvoi');
+    return envoi.ok ? repondre({ ok: true }) : repondre({ erreur: 'Envoi impossible : ' + envoi.raison }, 502);
+  }
+  return repondre(await soiree.effacerCoordonnees());
+}
+
 const URL_ACCUEIL = 'https://choisislavie.org/life-party/lets-play/inscription/accueil/';
 const API_PUBLIQUE = 'https://lifeparty-benevoles.natquinson.workers.dev';
 const echapper = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -367,6 +647,11 @@ export default {
     try {
       const instance = url.searchParams.get('instance') || 'live';
       if (!INSTANCES.has(instance)) throw new Refus(400, 'Instance inconnue.');
+      // soiree « Au pied du Pere » : son propre code organisation (CODE_SOIREE)
+      if (url.pathname.startsWith('/api/soiree/')) {
+        const ipSoiree = await sha256((request.headers.get('CF-Connecting-IP') || '') + '|' + (env.SEL_IP || ''));
+        return await routeSoiree(request, env, url, instance, ipSoiree, repondre, resultat);
+      }
       const stub = env.PLANNING.get(env.PLANNING.idFromName(instance));
       const code = request.headers.get('X-Code-Organisation') || '';
       const admin = Boolean(env.CODE_ORGANISATION) && egalTempsConstant(code, env.CODE_ORGANISATION);

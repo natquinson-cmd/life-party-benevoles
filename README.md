@@ -22,3 +22,14 @@ Page d'inscription des bénévoles : chacun choisit un stand et écrit son prén
 ## Tests
 
 `python tests_api.py` lance les tests de l'API sur l'instance `test` uniquement.
+
+## Soirée « Au pied du Père » (12 décembre 2026)
+
+Le même Worker porte les inscriptions de la soirée de réveil et d'adoration (Durable Object `Soiree`, routes `/api/soiree/…`).
+
+- Page publique (lien du QR code, absente des menus et du sitemap) : https://choisislavie.org/au-pied-du-pere/ (source dans `site-choisislavie/au-pied-du-pere/`, publiée par `wrangler pages deploy`).
+- Page organisation : `/au-pied-du-pere/organisation/#organisation=CODE`, code = secret `CODE_SOIREE` (distinct de `CODE_ORGANISATION`, copie locale gitignorée `CODE_SOIREE.txt`).
+- Jauge : 100 places au départ, adultes et enfants comptés ensemble, modifiable depuis la page organisation. Complet = inscriptions refusées. Fermeture automatique le 12/12/2026 à 19 h 30.
+- Champs : prénom, nom, e-mail, ville, congrégation (facultative), nombre d'adultes et d'enfants. Une inscription par adresse e-mail.
+- E-mail de confirmation (sans billet) via le Worker de contact, avec un lien d'annulation `#annuler=ID.CLE` (clé HMAC dérivée de `SEL_IP`, rien à stocker).
+- Tests : `python tests_soiree.py` (instance `test` uniquement).
